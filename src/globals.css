@@ -4,98 +4,49 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
-
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
-
-    --radius: 0.5rem;
-
-    --sidebar-background: 0 0% 98%;
-
-    --sidebar-foreground: 240 5.3% 26.1%;
-
-    --sidebar-primary: 240 5.9% 10%;
-
-    --sidebar-primary-foreground: 0 0% 98%;
-
-    --sidebar-accent: 240 4.8% 95.9%;
-
-    --sidebar-accent-foreground: 240 5.9% 10%;
-
-    --sidebar-border: 220 13% 91%;
-
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --background: 40 25% 97%; --foreground: 235 25% 19%;
+    --card: 0 0% 100%; --card-foreground: 235 25% 19%;
+    --popover: 0 0% 100%; --popover-foreground: 235 25% 19%;
+    --primary: 247 62% 57%; --primary-foreground: 0 0% 100%;
+    --secondary: 245 35% 94%; --secondary-foreground: 247 45% 38%;
+    --muted: 40 15% 93%; --muted-foreground: 235 9% 44%;
+    --accent: 245 35% 94%; --accent-foreground: 247 45% 38%;
+    --destructive: 0 65% 48%; --destructive-foreground: 0 0% 100%;
+    --border: 235 13% 89%; --input: 235 13% 86%; --ring: 247 62% 57%; --radius: 0.85rem;
+    --aether-accent: #5b4bd6; --aether-ink: var(--aether-accent); --aether-sidebar: #ffffff; --aether-soft: #eeebfc;
   }
-
-  .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+  :root[data-theme='navy'] {
+    --background: 226 35% 11%; --foreground: 225 30% 94%; --card: 225 30% 16%; --card-foreground: 225 30% 94%;
+    --popover: 225 30% 16%; --popover-foreground: 225 30% 94%; --muted: 225 25% 19%; --muted-foreground: 225 17% 72%;
+    --secondary: 245 25% 23%; --secondary-foreground: 245 50% 88%; --accent: 245 25% 23%; --accent-foreground: 245 50% 88%;
+    --border: 225 20% 25%; --input: 225 20% 30%; --aether-sidebar: #182037; --aether-soft: #2c2850; --aether-ink: #c7b9ff;
   }
+  :root[data-theme='cyan'] {
+    --background: 213 48% 10%; --foreground: 195 30% 95%; --card: 213 40% 15%; --card-foreground: 195 30% 95%;
+    --popover: 213 40% 15%; --popover-foreground: 195 30% 95%; --muted: 213 30% 19%; --muted-foreground: 200 20% 72%;
+    --secondary: 200 38% 20%; --secondary-foreground: 190 50% 86%; --accent: 200 38% 20%; --accent-foreground: 190 50% 86%;
+    --border: 213 25% 25%; --input: 213 25% 30%; --aether-sidebar: #142438; --aether-soft: #173c4a; --aether-ink: #8dddec;
+  }
+  * { @apply border-border; }
+  body { @apply bg-background text-foreground antialiased; font-family: 'DM Sans', sans-serif; }
+  h1,h2,h3,.display-font { font-family: 'Manrope', sans-serif; }
+  button, a, input { -webkit-tap-highlight-color: transparent; }
+  ::selection { background: #dcd6ff; color: #2f246f; }
+  :focus-visible { outline: 2px solid var(--aether-accent); outline-offset: 4px; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 8px; }
 }
-
-@layer base {
-  * {
-    @apply border-border;
-  }
-
-  body {
-    @apply bg-background text-foreground;
-  }
+@layer components {
+  .aether-primary { background: var(--aether-accent) !important; @apply text-white rounded-xl shadow-sm hover:brightness-110 transition-colors; }
+  .aether-panel { @apply rounded-2xl border bg-card; }
+  .aether-field { @apply rounded-xl bg-background border-input; }
+  .eyebrow { @apply text-[10px] font-bold uppercase tracking-[0.19em] text-muted-foreground; }
+  .nav-item { @apply flex items-center gap-3 rounded-xl px-3.5 py-3 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground; }
+  .nav-item.active { background: var(--aether-soft); color: var(--aether-ink); }
+  .game-cover { @apply relative overflow-hidden bg-muted; }
+  .game-cover img { @apply h-full w-full object-cover; }
+  .game-cover::after { content: ''; @apply pointer-events-none absolute inset-0 rounded-[inherit] ring-1 ring-inset ring-white/10; }
 }
+[class~="text-[var(--aether-accent)]"] { color: var(--aether-ink); }
+@media (prefers-reduced-motion: reduce) { *,*::before,*::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
+.performance *, .performance *::before, .performance *::after { animation: none !important; transition: none !important; backdrop-filter: none !important; }

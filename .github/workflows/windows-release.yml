@@ -1,0 +1,51 @@
+name: Aether Hub Windows build
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - name: Install locked frontend dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Frontend type check
+        run: pnpm run typecheck
+      - name: Generate original native icons
+        run: pnpm run desktop:icons
+      - name: Native tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+      - name: Build native executable and offline setup
+        run: pnpm run desktop:build
+      - name: Collect executable, installer and checksums
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifacts | Out-Null
+          Copy-Item 'src-tauri/target/x86_64-pc-windows-msvc/release/aether-hub.exe' 'artifacts/Aether Hub.exe'
+          Get-ChildItem 'src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis' -Filter '*.exe' | Copy-Item -Destination artifacts
+          Copy-Item docs/INSTALLATION.md artifacts
+          Get-ChildItem artifacts -Filter '*.exe' | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            "$hash  $($_.Name)"
+          } | Set-Content 'artifacts/SHA256SUMS.txt'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Aether-Hub-Windows-x64-unsigned
+          path: artifacts/
+          if-no-files-found: error

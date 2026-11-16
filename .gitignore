@@ -29,3 +29,9 @@ dist-ssr
 /playwright/.cache/
 .last-run.json
 .dyad/
+
+# Native build outputs and generated packaging assets
+/src-tauri/target/
+/src-tauri/gen/
+/src-tauri/icons/
+/artifacts/
