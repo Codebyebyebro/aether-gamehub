@@ -1,13 +1,14 @@
 import { useRef, useState } from "react";
-import { FolderOpen, ImagePlus, Loader2, Sparkles } from "lucide-react";
+import { Clock, FolderOpen, ImagePlus, Loader2, Sparkles } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Game, Platform, blankGame, desktop, pickFile, importArtwork, steamImage, imageUrl, gridArtwork } from "@/lib/aether";
+import { Game, Platform, PlaytimeEntry, blankGame, desktop, pickFile, importArtwork, steamImage, imageUrl, gridArtwork } from "@/lib/aether";
+import { formatAgo, formatPlaytime } from "@/lib/format";
 import { toast } from "sonner";
 
-export default function GameEditor({ game, close, save }: { game?: Game; close: () => void; save: (game: Game) => Promise<void> }) {
+export default function GameEditor({ game, playtime, close, save }: { game?: Game; playtime?: PlaytimeEntry; close: () => void; save: (game: Game) => Promise<void> }) {
   const [draft, setDraft] = useState<Game>(game ? { ...game } : blankGame());
   const [busy, setBusy] = useState(false); const [key, setKey] = useState("");
   const [matches, setMatches] = useState<{ id: number; name: string; url: string }[]>([]);
@@ -25,7 +26,7 @@ export default function GameEditor({ game, close, save }: { game?: Game; close: 
     setBusy(true); try { await save({ ...draft, title: draft.title.trim(), target: draft.target.trim() }); close(); } catch(e) { toast.error(String(e)); } finally { setBusy(false); }
   }
   async function lookup() { if (!key.trim()) { toast.error("Enter your optional SteamGridDB key."); return; } setBusy(true); try { setMatches(await gridArtwork(draft.title, key)); } catch(e) { toast.error(String(e)); } finally { setBusy(false); } }
-  return <Dialog open onOpenChange={open => !open && close()}><DialogContent className="max-h-[90vh] max-w-[640px] overflow-y-auto rounded-3xl bg-card p-7"><DialogHeader><DialogTitle className="display-font text-2xl font-extrabold">{game ? "Edit your game" : "A new adventure."}</DialogTitle><DialogDescription className="text-xs">{game ? "Update the details. Your installed files stay untouched." : "Add any installed game. No account required."}</DialogDescription></DialogHeader>
+  return <Dialog open onOpenChange={open => !open && close()}><DialogContent className="max-h-[90vh] max-w-[640px] overflow-y-auto rounded-3xl bg-card p-7"><DialogHeader><DialogTitle className="display-font text-2xl font-extrabold">{game ? "Edit your game" : "A new adventure."}</DialogTitle><DialogDescription className="text-xs">{game ? "Update the details. Your installed files stay untouched." : "Add any installed game. No account required."}</DialogDescription>{game && <p className="flex items-center gap-1.5 pt-1 text-[11px] text-muted-foreground"><Clock size={12} />{formatPlaytime(playtime?.seconds)}{playtime?.lastPlayed ? ` · last played ${formatAgo(playtime.lastPlayed)}` : ""}</p>}</DialogHeader>
     <form onSubmit={submit} className="mt-3 space-y-5"><div className="grid gap-4 sm:grid-cols-[1fr_140px]"><div className="space-y-2"><Label className="text-xs" htmlFor="game-title">Game title</Label><Input autoFocus id="game-title" required maxLength={160} className="aether-field" placeholder="e.g. Hollow Knight" value={draft.title} onChange={e => patch({ title: e.target.value })} /></div><div className="space-y-2"><Label htmlFor="game-platform" className="text-xs">Platform</Label><select id="game-platform" value={draft.platform} onChange={e => patch({ platform: e.target.value as Platform })} className="aether-field h-10 w-full px-3 text-sm">{["Custom", "Steam", "Epic", "Riot"].map(p => <option key={p}>{p}</option>)}</select></div></div>
       {draft.platform === "Steam" && <div className="space-y-2"><Label htmlFor="steam-id" className="text-xs">Steam app ID (optional)</Label><div className="flex gap-2"><Input id="steam-id" className="aether-field" placeholder="e.g. 367520" inputMode="numeric" value={draft.steamId} onChange={e => patch({ steamId: e.target.value })} /><Button type="button" variant="outline" className="rounded-xl text-xs" onClick={() => { if (!/^\d+$/.test(draft.steamId)) { toast.error("Enter a numeric Steam app ID."); return; } patch({ target: `steam://rungameid/${draft.steamId}`, cover: steamImage(draft.steamId), banner: steamImage(draft.steamId, true) }); }}><Sparkles size={14} className="mr-2" />Map artwork</Button></div></div>}
       <div className="space-y-2"><Label htmlFor="target" className="text-xs">Executable path or platform URI</Label><div className="flex gap-2"><Input id="target" required className="aether-field font-mono text-xs" placeholder="C:\Games\Hollow Knight\hollow_knight.exe" value={draft.target} onChange={e => patch({ target: e.target.value })} /><Button type="button" variant="outline" className="rounded-xl" aria-label="Browse executable" onClick={() => browse("target")}><FolderOpen size={16} /></Button></div></div>

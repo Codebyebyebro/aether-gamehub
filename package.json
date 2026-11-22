@@ -10,10 +10,13 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
+    "tauri": "tauri",
+    "pretauri": "node scripts/ensure-icons.mjs",
     "desktop:icons": "tauri icon public/aether-mark.svg",
     "desktop:dev": "npm run desktop:icons && tauri dev",
     "desktop:build": "npm run desktop:icons && tauri build --target x86_64-pc-windows-msvc",
-    "native:test": "cargo test --manifest-path src-tauri/Cargo.toml"
+    "native:test": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "test:logic": "node --test \"src/**/*.test.ts\""
   },
   "dependencies": {
     "@fontsource/dm-sans": "^5.3.0",

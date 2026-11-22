@@ -1,5 +1,13 @@
 use crate::models::Game;
-use std::{path::Path, process::Command};
+use std::{path::{Path, PathBuf}, process::Command};
+
+/// What the session tracker needs to know about a game that was just started.
+pub struct Handoff {
+    /// Process id of a directly spawned executable. Storefront URIs hand off to a client, so they have none.
+    pub pid: Option<u32>,
+    /// Folder a directly started game runs from. Storefront launches resolve theirs from the store's manifests.
+    pub dir: Option<PathBuf>,
+}
 
 pub fn validate_target(target: &str) -> Result<(), String> {
     if target.contains('\0') { return Err("Launch target contains an invalid character".into()); }
@@ -16,7 +24,7 @@ pub fn validate_target(target: &str) -> Result<(), String> {
     if !p.is_absolute() || !p.extension().is_some_and(|e| e.to_string_lossy().eq_ignore_ascii_case("exe")) { return Err("Choose an absolute .exe path or a supported Steam/Epic launch URI".into()); }
     Ok(())
 }
-pub fn handoff(game: &Game) -> Result<(), String> {
+pub fn handoff(game: &Game) -> Result<Handoff, String> {
     validate_target(&game.target)?;
     if game.target.contains("://") {
         #[cfg(windows)] {
@@ -25,7 +33,7 @@ pub fn handoff(game: &Game) -> Result<(), String> {
             let operation: Vec<u16> = "open".encode_utf16().chain(Some(0)).collect();
             let result = unsafe { ShellExecuteW(HWND::default(), PCWSTR(operation.as_ptr()), PCWSTR(target.as_ptr()), PCWSTR::null(), PCWSTR::null(), SW_SHOWNORMAL) };
             if result.0 as isize <= 32 { return Err("Windows could not open the platform client. Check that the client is installed.".into()); }
-            return Ok(());
+            return Ok(Handoff { pid: None, dir: None });
         }
         #[cfg(not(windows))] return Err("Platform launching is supported on Windows only".into());
     }
@@ -40,8 +48,8 @@ pub fn handoff(game: &Game) -> Result<(), String> {
         if !game.args.is_empty() { cmd.raw_arg(&game.args); }
     }
     #[cfg(not(windows))] if !game.args.is_empty() { return Err("Native game launch arguments are supported on Windows only".into()); }
-    cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().map_err(|e| format!("Could not start the game: {e}"))?;
-    Ok(())
+    let child = cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().map_err(|e| format!("Could not start the game: {e}"))?;
+    Ok(Handoff { pid: Some(child.id()), dir: Some(dir.to_path_buf()) })
 }
 #[cfg(test)]
 mod tests {
