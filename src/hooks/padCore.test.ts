@@ -96,3 +96,25 @@ test("a screen can make buttons quick and repeating (the on-screen keyboard); th
   const m = new PadMachine(); const circle = frame([BUTTON.circle]);
   assert.deepEqual([m.step(0, circle, keyboard), m.step(40, frame(), keyboard), m.step(100, circle, keyboard)].flat(), ["back"], "buttons a screen leaves out keep the cooldown");
 });
+
+test("a thumb resting near 45 degrees does not zigzag between two directions", () => {
+  const m = new PadMachine();
+  const wobble = [[0.72, 0.7], [0.69, 0.71], [0.73, 0.69], [0.7, 0.72], [0.71, 0.7], [0.68, 0.72], [0.72, 0.69], [0.7, 0.73]];
+  const fired = wobble.flatMap(([x, y], i) => m.step(i * 40, frame([], [x, y, 0, 0])));
+  assert.deepEqual(fired, ["right"], "one move, then nothing while the thumb stays put");
+});
+test("the stick still changes axis on a deliberate turn, and reverses along its own axis", () => {
+  const m = new PadMachine(); const stick = (x: number, y: number) => frame([], [x, y, 0, 0]);
+  assert.deepEqual(m.step(0, stick(0.9, 0)), ["right"]);
+  assert.deepEqual(m.step(40, stick(0.7, 0.8)), [], "a diagonal that only slightly favours the other axis keeps the first");
+  assert.deepEqual(m.step(80, stick(0.2, -0.9)), ["up"], "a clear turn to another axis switches");
+  assert.deepEqual(m.step(160, stick(0, 0)), [], "release");
+  assert.deepEqual(m.step(200, stick(-0.9, 0)), ["left"], "after release the first push chooses afresh");
+  assert.deepEqual(m.step(240, stick(0.9, 0)), ["right"], "a flick straight across to the opposite side counts as a new press");
+});
+test("the first push of a diagonal picks the larger axis, and a later release forgets it", () => {
+  const m = new PadMachine(); const stick = (x: number, y: number) => frame([], [x, y, 0, 0]);
+  assert.deepEqual(m.step(0, stick(0.65, 0.8)), ["down"]);
+  assert.deepEqual(m.step(40, stick(0, 0)), []);
+  assert.deepEqual(m.step(80, stick(0.8, 0.65)), ["right"], "the previous axis is not remembered across a release");
+});

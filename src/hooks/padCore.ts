@@ -29,6 +29,8 @@ export interface PadTiming {
 export const DEFAULT_TIMING: PadTiming = { pollMs: 33, repeatDelayMs: 400, repeatMs: 120, bounceMs: 60, cooldownMs: 220, stickEnter: 0.6, stickExit: 0.4 };
 
 const DIRECTIONS: readonly PadAction[] = ["up", "down", "left", "right"];
+/** The other stick axis must beat the current one by this factor before the direction changes axis. */
+const AXIS_SWITCH = 1.3;
 /**
  * How a screen wants presses handled. `quick` actions only get the short bounce filter (other buttons get the longer
  * cooldown, so a double tap cannot launch or close twice); `repeat` actions fire again while held. Menus use the
@@ -48,7 +50,8 @@ export class PadMachine {
   private nextRepeat = new Map<PadAction, number>();
   private lastFired = new Map<PadAction, number>();
   private lastStep = -Infinity;
-  private stick = false;
+  /** The direction the left stick is holding, kept so a thumb resting near 45 degrees does not flip between two axes. */
+  private stickDir: PadAction | null = null;
   private readonly timing: PadTiming;
   constructor(timing: PadTiming = DEFAULT_TIMING) { this.timing = timing; }
 
@@ -56,14 +59,19 @@ export class PadMachine {
   private read(frame: PadFrame): Set<PadAction> {
     const down = new Set<PadAction>();
     for (const [index, action] of BUTTON_ACTIONS) if (frame.buttons[index]) down.add(action);
-    let stick = false;
+    let stickDir: PadAction | null = null;
     if (!DIRECTIONS.some(d => down.has(d))) {
-      const x = frame.axes[0] ?? 0, y = frame.axes[1] ?? 0;
-      if (Math.max(Math.abs(x), Math.abs(y)) >= (this.stick ? this.timing.stickExit : this.timing.stickEnter)) {
-        down.add(Math.abs(x) > Math.abs(y) ? (x > 0 ? "right" : "left") : (y > 0 ? "down" : "up")); stick = true;
+      const x = frame.axes[0] ?? 0, y = frame.axes[1] ?? 0, ax = Math.abs(x), ay = Math.abs(y);
+      if (Math.max(ax, ay) >= (this.stickDir ? this.timing.stickExit : this.timing.stickEnter)) {
+        // Keep the axis already chosen unless the other one clearly wins: a thumb resting at 45 degrees wobbles by a few
+        // percent between frames, and choosing the larger axis every frame would fire right, down, right, down.
+        const was = this.stickDir, wasHorizontal = was === "left" || was === "right";
+        const horizontal = was ? (wasHorizontal ? ay <= ax * AXIS_SWITCH : ax > ay * AXIS_SWITCH) : ax > ay;
+        stickDir = horizontal ? (x > 0 ? "right" : "left") : (y > 0 ? "down" : "up");
+        down.add(stickDir);
       }
     }
-    this.stick = stick;
+    this.stickDir = stickDir;
     return down;
   }
   private allowed(action: PadAction, now: number, rules: PadRules) {
@@ -96,7 +104,7 @@ export class PadMachine {
     this.suppressed = frame ? this.read(frame) : new Set<PadAction>();
     this.held = new Set(this.suppressed); this.nextRepeat.clear();
   }
-  clear() { this.held.clear(); this.suppressed.clear(); this.nextRepeat.clear(); this.lastFired.clear(); this.lastStep = -Infinity; this.stick = false; }
+  clear() { this.held.clear(); this.suppressed.clear(); this.nextRepeat.clear(); this.lastFired.clear(); this.lastStep = -Infinity; this.stickDir = null; }
 }
 
 /** Builds a frame from a browser Gamepad (a trigger counts as pressed past half travel). */
