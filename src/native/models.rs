@@ -82,6 +82,12 @@ pub struct ScanStats {
     pub known_tools: u32,
     pub already_managed: u32,
     pub duplicates: u32,
+    /// Files that look downloaded (a version number in the name, or loose in a Downloads folder) and have no game files.
+    pub installers: u32,
+    /// Programs under Program Files, ProgramData, AppData and similar with no game files next to them.
+    pub programs: u32,
+    /// Files in a Downloads folder with no game files next to them; these are listed under "Filtered out".
+    pub no_game_files: u32,
 }
 #[derive(Default, Serialize)]
 #[serde(rename_all = "camelCase")]

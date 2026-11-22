@@ -24,7 +24,7 @@ export interface Library { games: Game[]; settings: Settings }
 /** What the scan review shows about a candidate; never saved with the game. */
 export interface ScanDetail { sizeBytes: number | null; path: string; source: "Steam" | "Epic" | "Riot" | "Folder" }
 export interface FilteredItem { game: Game; detail: ScanDetail; reason: string }
-export interface ScanStats { executablesSeen: number; tooSmall: number; blacklisted: number; knownTools: number; alreadyManaged: number; duplicates: number }
+export interface ScanStats { executablesSeen: number; tooSmall: number; blacklisted: number; knownTools: number; alreadyManaged: number; duplicates: number; installers: number; programs: number; noGameFiles: number }
 /** `cancelled` means the player stopped the scan; everything else is then empty. */
 export interface ScanResult { games: Game[]; warnings: string[]; details: Record<string, ScanDetail>; filtered: FilteredItem[]; stats: ScanStats; cancelled: boolean }
 /** The `aether:scan-progress` event. `step` is 0 while store lists are read, then one per custom folder, and `steps` when done. */

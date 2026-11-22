@@ -1,6 +1,6 @@
 use crate::{models::{FilteredItem, Game, ScanDetail, ScanResult}, scan_control::Watch, storage, util};
 use serde_json::{Map, Value};
-use std::{collections::HashSet, fs, path::{Component, Path, PathBuf}};
+use std::{collections::{HashMap, HashSet}, fs, path::{Component, Path, PathBuf}};
 
 /// `.exe` files smaller than this are ignored: helpers, stubs and bootstrappers are tiny. Store entries are exempt.
 pub const MIN_EXE_BYTES: u64 = 2 * 1024 * 1024;
@@ -11,6 +11,7 @@ const MAX_FILTERED: usize = 200;
 /// The strict candidate filters. Everything here is pure so it can be tested without a disk.
 pub mod rules {
     use super::MIN_EXE_BYTES;
+    use std::collections::HashSet;
 
     /// Rejected when they appear anywhere in a file or folder name: `SetupFiles`, `unins000`, `UnityCrashHandler64`.
     pub const BLOCKED_SUBSTRINGS: &[&str] = &[
@@ -22,7 +23,8 @@ pub mod rules {
     /// so these only count as whole words. Each entry is (word, keyword reported to the user).
     pub const BLOCKED_WORDS: &[(&str, &str)] = &[
         ("doc", "doc"), ("docs", "doc"), ("docx", "docx"), ("document", "doc"), ("documents", "doc"),
-        ("isa", "isa"), ("temp", "temp"), ("tmp", "temp"), ("temporary", "temp"),
+        ("isa", "isa"), ("temp", "temp"), ("tmp", "temp"), ("temporary", "temp"), ("inst", "inst"),
+        ("tool", "tool"), ("tools", "tool"), ("editor", "editor"),
     ];
     /// Programs that are never games, matched exactly (ignoring case, spaces and punctuation). `browser` and `doc`
     /// do not catch `chrome.exe` or `winword.exe`, so the well-known ones are listed here.
@@ -34,11 +36,11 @@ pub mod rules {
         "powershell", "pwsh", "cmd", "conhost", "windowsterminal", "mintty", "packettracer", "wireshark", "putty",
         "securecrt", "gns3", "virtualbox", "vboxmanage", "vmware", "vmplayer", "7zfm", "7zg", "winrar", "vlc",
         "explorer", "taskmgr", "regedit", "mspaint", "calc", "beservice", "beservicex64", "easyanticheat",
-        "easyanticheateos", "oalinst",
+        "easyanticheateos", "oalinst", "aetherhub",
     ];
 
     #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-    pub enum Kind { TooSmall, Keyword, KnownTool }
+    pub enum Kind { TooSmall, Keyword, KnownTool, Installer, Program, NoGameFiles }
     #[derive(Debug, PartialEq, Eq, Clone)]
     pub enum Verdict { Accept, Reject { kind: Kind, reason: String } }
 
@@ -88,6 +90,143 @@ pub mod rules {
         if size < MIN_EXE_BYTES { return reject(Kind::TooSmall, format!("Smaller than {} ({})", format_size(MIN_EXE_BYTES), format_size(size))); }
         Verdict::Accept
     }
+
+    // ---- Where a file lives, and what sits next to it ---------------------------------------------------------------
+    // Names alone cannot tell `adb.exe` or `bash.exe` from a game, and a drive scan finds thousands of programs. So
+    // installed software (Program Files, AppData...) and downloaded files are offered only when game files sit next to
+    // them. A folder that says "games" is trusted, as before.
+
+    /// Folder names that mean "games live here" wherever they appear in the path, even above the chosen folder. Launchers
+    /// are left out on purpose: `GOG Galaxy` and `Battle.net` hold the launcher itself, their games sit in a `Games` folder.
+    pub const GAME_FOLDERS: &[&str] = &[
+        "games", "my games", "steamlibrary", "epic games", "epicgames", "ea games", "origin games", "gog games", "riot games",
+        "ubisoft games", "rockstar games", "xboxgames",
+    ];
+    /// Folders where installed software lives. Games can live here too, but then they must show game files.
+    pub const SYSTEM_FOLDERS: &[&str] = &["program files", "program files (x86)", "programdata", "windows", "windowsapps", "$recycle.bin"];
+    /// Folders that only wrap an executable (`Game/Binaries/Win64/Game.exe`): the game's own files are one level up.
+    const WRAPPER_FOLDERS: &[&str] = &["bin", "bin32", "bin64", "binaries", "win64", "win32", "x64", "x86", "x86_64", "release", "shipping", "retail"];
+    /// The score at which game files count as proof.
+    pub const ENOUGH: u32 = 3;
+
+    #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+    pub enum Placement { GameFolder, Program, Downloads { loose: bool }, Other }
+
+    /// `parts` are the names in a full path, outermost first, with the file name last. A "games" folder anywhere wins;
+    /// then installed-software folders (a hidden `.folder` such as `.cargo`, and AppData except its Temp folder); then
+    /// Downloads, where `loose` means the file sits directly in it.
+    pub fn placement(parts: &[&str]) -> Placement {
+        let low: Vec<String> = parts.iter().map(|p| p.to_lowercase()).collect();
+        let folders = &low[..low.len().saturating_sub(1)];
+        if folders.iter().any(|p| GAME_FOLDERS.contains(&p.as_str())) { return Placement::GameFolder; }
+        for (i, p) in folders.iter().enumerate() {
+            let temp = folders.get(i + 1).map(String::as_str) == Some("local") && folders.get(i + 2).map(String::as_str) == Some("temp");
+            if SYSTEM_FOLDERS.contains(&p.as_str()) || (p.len() > 1 && p.starts_with('.')) || (p == "appdata" && !temp) { return Placement::Program; }
+        }
+        match folders.iter().rposition(|p| p == "downloads") {
+            Some(i) => Placement::Downloads { loose: i + 1 == folders.len() },
+            None => Placement::Other,
+        }
+    }
+
+    /// `Rainmeter-4.5.28`, `python 3.13.6 amd64`, `Setup (1)`: a version number or a browser's duplicate counter in the
+    /// name means a downloaded installer or tool, not an installed game.
+    pub fn looks_downloaded(stem: &str) -> bool {
+        let version = stem.as_bytes().windows(3).any(|w| w[0].is_ascii_digit() && w[1] == b'.' && w[2].is_ascii_digit());
+        let copy = stem.trim_end().strip_suffix(')').and_then(|s| s.rsplit_once('(')).is_some_and(|(_, n)| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()));
+        version || copy
+    }
+
+    /// The lower-cased names inside a game's folder, merged with the folders above it that only wrap the executable.
+    #[derive(Default, Debug, Clone)]
+    pub struct Listing { pub files: HashSet<String>, pub dirs: HashSet<String> }
+    #[derive(Default, Debug, PartialEq, Eq)]
+    pub struct Evidence { pub score: u32, pub notes: Vec<&'static str> }
+
+    pub fn is_wrapper_folder(name: &str) -> bool { WRAPPER_FOLDERS.contains(&name.to_lowercase().as_str()) }
+
+    const STORE_SDK_FILES: &[&str] = &["eossdk-win64-shipping.dll", "galaxypeer64.dll", "galaxy64.dll", "discord_game_sdk.dll", "upc_r2_loader64.dll", "uplay_r1_loader64.dll"];
+    const MIDDLEWARE_FILES: &[&str] = &["fmod.dll", "fmodstudio.dll", "fmod64.dll", "fmodex64.dll", "bink2w64.dll", "binkw64.dll", "physxcommon_64.dll", "physx3_x64.dll"];
+    const DIRECTX_FILES: &[&str] = &["xinput1_3.dll", "xinput9_1_0.dll", "d3dx9_43.dll", "d3dx11_43.dll", "d3dcompiler_43.dll", "x3daudio1_7.dll", "xaudio2_7.dll"];
+    const GAME_DATA_FOLDERS: &[&str] = &["content", "assets", "maps", "levels", "textures", "shaders", "sounds", "music", "mods", "movies", "videos", "localization", "streamingassets", "paks", "savegames", "saves", "screenshots", "characters", "audio", "cutscenes"];
+    const ARCHIVE_EXTENSIONS: &[&str] = &[".pak", ".pck", ".wad", ".bsa", ".vpk", ".bank", ".unity3d", ".assets", ".big", ".ba2", ".arc", ".xnb", ".rpf"];
+
+    /// Looks for the files games ship with. Engine and store files are strong proof (3 points). Folders of sounds or levels
+    /// and data archives add at most 2 together, so a media or office program with an `assets` folder is never enough.
+    pub fn evidence(stem: &str, found: &Listing) -> Evidence {
+        let stem = stem.to_lowercase();
+        let has = |f: &str| found.files.contains(f);
+        let dir = |d: &str| found.dirs.contains(d);
+        let any_file = |names: &[&str]| names.iter().any(|n| found.files.contains(*n));
+        let mut e = Evidence::default();
+        let mut add = |points: u32, why: &'static str| { e.score += points; e.notes.push(why); };
+        if any_file(&["steam_api64.dll", "steam_api.dll", "steam_appid.txt"]) { add(3, "Steam game files"); }
+        if has("unityplayer.dll") || dir(&format!("{stem}_data")) || dir("monobleedingedge") { add(3, "Unity game files"); }
+        if stem.ends_with("-win64-shipping") || stem.ends_with("-win32-shipping") || (dir("engine") && (dir("content") || dir("binaries") || found.files.iter().any(|f| f.starts_with("manifest_") && f.ends_with(".txt")))) { add(3, "Unreal Engine files"); }
+        if found.files.iter().any(|f| f.ends_with(".pck")) { add(3, "Godot game files"); }
+        if has("data.win") { add(3, "GameMaker game files"); }
+        if found.files.iter().any(|f| f.starts_with("rgss") && f.ends_with(".dll")) || dir("renpy") { add(3, "RPG Maker or Ren'Py files"); }
+        if any_file(STORE_SDK_FILES) { add(3, "Store or online-service files"); }
+        if any_file(MIDDLEWARE_FILES) { add(3, "Game audio, video or physics libraries"); }
+        if any_file(DIRECTX_FILES) { add(2, "DirectX game runtime files"); }
+        let folders = GAME_DATA_FOLDERS.iter().filter(|d| found.dirs.contains(**d)).count() as u32;
+        let archives = u32::from(found.files.iter().any(|f| ARCHIVE_EXTENSIONS.iter().any(|x| f.ends_with(*x))));
+        if folders + archives > 0 { add((folders + archives).min(2), "Game data folders or archives"); }
+        e
+    }
+
+    /// Combines where the file lives with its game-file score. A file loose in Downloads is dropped whatever sits beside it
+    /// (that folder is a dumping ground, so neighbours prove nothing). Elsewhere, enough game files accept it; without them
+    /// installed programs and versioned installers outside Downloads are dropped, and a file inside a Downloads subfolder is
+    /// kept under "Filtered out" in case it is a game that ships none of the files above (zipped indie games often carry a
+    /// version in the folder name).
+    pub fn place_verdict(place: Placement, stem: &str, score: u32) -> Verdict {
+        let reject = |kind, reason: &str| Verdict::Reject { kind, reason: reason.to_owned() };
+        match place {
+            Placement::GameFolder => Verdict::Accept,
+            Placement::Downloads { loose: true } => reject(Kind::Installer, "Sits directly in a Downloads folder, so it is most likely an installer or tool"),
+            _ if score >= ENOUGH => Verdict::Accept,
+            Placement::Program => reject(Kind::Program, "Installed program with no game files next to it"),
+            Placement::Other if looks_downloaded(stem) => reject(Kind::Installer, "The name has a version number, so it is a downloaded installer or tool"),
+            Placement::Downloads { .. } => reject(Kind::NoGameFiles, "No game engine, store or data files found next to it"),
+            Placement::Other => Verdict::Accept,
+        }
+    }
+
+    /// Whether `place_verdict` can change its answer by looking at the folder, so the scanner reads the disk only then.
+    pub fn needs_proof(place: Placement, stem: &str) -> bool {
+        match place {
+            Placement::GameFolder | Placement::Downloads { loose: true } => false,
+            Placement::Program | Placement::Downloads { .. } => true,
+            Placement::Other => looks_downloaded(stem),
+        }
+    }
+}
+
+/// Reads one folder's entry names (lower-cased, at most 5,000) for the game-file check.
+fn list_dir(dir: &Path) -> rules::Listing {
+    let mut listing = rules::Listing::default();
+    for entry in fs::read_dir(dir).into_iter().flatten().flatten().take(5000) {
+        let name = entry.file_name().to_string_lossy().to_lowercase();
+        match entry.file_type() { Ok(t) if t.is_dir() => { listing.dirs.insert(name); } Ok(_) => { listing.files.insert(name); } Err(_) => {} }
+    }
+    listing
+}
+/// The game-file evidence for an executable: its own folder plus the folders above it that only wrap it (`bin`, `Win64`).
+/// `cache` keeps each folder's listing so a folder full of executables is read once.
+fn game_files(path: &Path, stem: &str, cache: &mut HashMap<PathBuf, rules::Listing>) -> rules::Evidence {
+    if cache.len() > 4000 { cache.clear(); }
+    let mut merged = rules::Listing::default();
+    let mut dir = path.parent();
+    for _ in 0..4 {
+        let Some(d) = dir else { break };
+        let listing = cache.entry(d.to_path_buf()).or_insert_with(|| list_dir(d));
+        merged.files.extend(listing.files.iter().cloned());
+        merged.dirs.extend(listing.dirs.iter().cloned());
+        if !d.file_name().is_some_and(|n| rules::is_wrapper_folder(&n.to_string_lossy())) { break; }
+        dir = d.parent();
+    }
+    rules::evidence(stem, &merged)
 }
 
 struct Scan {
@@ -257,6 +396,7 @@ fn custom(scan: &mut Scan, folder: &Path, watch: &mut Watch) {
     let walker = walkdir::WalkDir::new(folder).max_depth(MAX_DEPTH).follow_links(false).into_iter()
         .filter_entry(|e| e.depth() == 0 || !never_descend(&e.file_name().to_string_lossy()));
     let (mut denied, mut visited) = (0, 0usize);
+    let mut listings: HashMap<PathBuf, rules::Listing> = HashMap::new();
     for entry in walker {
         if !watch.tick(scan.out.games.len()) { return; }
         let entry = match entry { Ok(e) => e, Err(_) => { denied += 1; continue; } };
@@ -270,12 +410,22 @@ fn custom(scan: &mut Scan, folder: &Path, watch: &mut Watch) {
         let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
         let folders: Vec<String> = path.strip_prefix(folder).ok().and_then(Path::parent).map(|p| p.components().filter_map(|c| match c { Component::Normal(n) => Some(n.to_string_lossy().into_owned()), _ => None }).collect()).unwrap_or_default();
         let stem = path.file_stem().unwrap_or_default().to_string_lossy().into_owned();
-        let verdict = rules::evaluate(&folders.iter().map(String::as_str).collect::<Vec<_>>(), &stem, size);
+        let mut verdict = rules::evaluate(&folders.iter().map(String::as_str).collect::<Vec<_>>(), &stem, size);
+        if verdict == rules::Verdict::Accept {
+            // The name rules passed. Now judge where the file lives and, for installed programs and downloads, what sits next to it.
+            let parts: Vec<String> = path.components().filter_map(|c| match c { Component::Normal(n) => Some(n.to_string_lossy().into_owned()), _ => None }).collect();
+            let place = rules::placement(&parts.iter().map(String::as_str).collect::<Vec<_>>());
+            let score = if rules::needs_proof(place, &stem) { game_files(path, &stem, &mut listings).score } else { 0 };
+            verdict = rules::place_verdict(place, &stem, score);
+        }
         let (kind, reason) = match &verdict { rules::Verdict::Accept => (None, String::new()), rules::Verdict::Reject { kind, reason } => (Some(*kind), reason.clone()) };
         match kind {
             Some(rules::Kind::TooSmall) => { scan.out.stats.too_small += 1; continue; }
+            Some(rules::Kind::Installer) => { scan.out.stats.installers += 1; continue; }
+            Some(rules::Kind::Program) => { scan.out.stats.programs += 1; continue; }
             Some(rules::Kind::KnownTool) => scan.out.stats.known_tools += 1,
             Some(rules::Kind::Keyword) => scan.out.stats.blacklisted += 1,
+            Some(rules::Kind::NoGameFiles) => scan.out.stats.no_game_files += 1,
             None => {}
         }
         // A rejected file below the size floor is noise; a large one may be a real game with an unlucky name.
@@ -460,5 +610,170 @@ pub fn parse_vdf(text: &str) -> Result<Value, String> {
         assert!(!result.cancelled && ours == 2, "under {} found {:?}", temp.display(), result.games.iter().map(|g| g.target.as_str()).collect::<Vec<_>>());
         assert!(seen[3].found as usize >= 2 && seen[3].checked >= 6, "{:?}", seen[3]);
         let _ = fs::remove_dir_all(temp);
+    }
+
+    // ---- Where a file lives and what sits next to it ---------------------------------------------------------------
+    fn listing(files: &[&str], dirs: &[&str]) -> Listing { Listing { files: files.iter().map(|s| s.to_string()).collect(), dirs: dirs.iter().map(|s| s.to_string()).collect() } }
+    fn place(full: &str) -> Placement { placement(&full.split(['\\', '/']).filter(|s| !s.is_empty() && !s.ends_with(':')).collect::<Vec<_>>()) }
+    fn dropped(v: Verdict) -> Option<Kind> { match v { Verdict::Reject { kind, .. } => Some(kind), Verdict::Accept => None } }
+
+    #[test] fn placement_reads_the_whole_path_not_only_the_part_below_the_chosen_folder() {
+        for program in [r"C:\Program Files\Google\Play Games\current\emulator\adb.exe", r"C:\Program Files (x86)\Steam\steam.exe", r"C:\Users\Sam\AppData\Local\Programs\Tool\tool.exe",
+                        r"C:\Users\Sam\AppData\Roaming\App\app.exe", r"C:\Users\Sam\.cargo\bin\cargo.exe", r"C:\ProgramData\Thing\thing.exe", r"C:\Windows\System32\calc.exe"] {
+            assert_eq!(place(program), Placement::Program, "{program}");
+        }
+        assert_eq!(place(r"D:\Games\Hades\Hades.exe"), Placement::GameFolder);
+        assert_eq!(place(r"C:\Program Files (x86)\Ubisoft\Ubisoft Game Launcher\games\Far Cry\fc.exe"), Placement::GameFolder, "a games folder wins over Program Files");
+        assert_eq!(place(r"C:\Users\Sam\Downloads\x.exe"), Placement::Downloads { loose: true });
+        assert_eq!(place(r"C:\Users\Sam\Downloads\Cool Game\cg.exe"), Placement::Downloads { loose: false });
+        assert_eq!(place(r"E:\Stuff\Cool\cg.exe"), Placement::Other);
+        assert_eq!(place(r"C:\Users\Sam\Desktop\Cool\cg.exe"), Placement::Other);
+        assert_eq!(place(r"C:\Users\Sam\AppData\Local\Temp\run\x.exe"), Placement::Other, "the tests below build their fixtures in Temp, which is not an installed program");
+        assert_eq!(place(r"/home/sam/Play Games/x.exe"), Placement::Other, "only a folder named exactly “Games” counts");
+    }
+    #[test] fn a_version_number_or_copy_counter_marks_a_download() {
+        for name in ["Rainmeter-4.5.28", "python 3.13.6 amd64", "OBS-Studio-30.1", "tool v2.0", "Setup (1)", "thing(12)"] { assert!(looks_downloaded(name), "{name}"); }
+        for name in ["Hades", "Cyberpunk2077", "Half-Life 2", "NBA 2K24", "Fallout4", "Rainbow Six (Siege)", "Mount & Blade II", "Portal 2"] { assert!(!looks_downloaded(name), "{name}"); }
+    }
+    #[test] fn engine_store_and_runtime_files_prove_a_game() {
+        let proves = |stem: &str, l: Listing| evidence(stem, &l).score >= ENOUGH;
+        assert!(proves("Hollow Knight", listing(&["unityplayer.dll"], &["hollow knight_data"])));
+        assert!(proves("Hades", listing(&["steam_api64.dll"], &[])));
+        assert!(proves("Tunic", listing(&["eossdk-win64-shipping.dll"], &[])));
+        assert!(proves("Game-Win64-Shipping", listing(&[], &[])));
+        assert!(proves("Game", listing(&["manifest_nonufsfiles_win64.txt"], &["engine", "game"])));
+        assert!(proves("Celeste", listing(&["fmod.dll"], &[])));
+        assert!(proves("Undertale", listing(&["data.win"], &[])));
+        assert!(proves("Godot Game", listing(&["godot game.pck"], &[])));
+        assert!(proves("To The Moon", listing(&["rgss301.dll"], &[])));
+        assert!(!proves("xinput only", listing(&["xinput1_3.dll"], &[])), "DirectX files alone are 2 points");
+    }
+    #[test] fn a_tool_with_asset_folders_is_never_enough_proof() {
+        let e = evidence("editor", &listing(&["resources.pak"], &["assets", "sounds", "music", "textures", "shaders", "localization", "content"]));
+        assert_eq!(e.score, 2, "data folders and archives are capped at 2 points together: {e:?}");
+        assert_eq!(evidence("tool", &listing(&["tool.exe", "readme.txt"], &["lib", "plugins"])), Evidence::default());
+    }
+    #[test] fn placement_and_proof_decide_what_is_offered() {
+        let (loose, nested) = (Placement::Downloads { loose: true }, Placement::Downloads { loose: false });
+        assert_eq!(place_verdict(Placement::GameFolder, "adb", 0), Verdict::Accept, "a games folder is trusted, as before");
+        assert_eq!(place_verdict(Placement::Program, "hades", ENOUGH), Verdict::Accept);
+        assert_eq!(dropped(place_verdict(Placement::Program, "adb", ENOUGH - 1)), Some(Kind::Program));
+        assert_eq!(dropped(place_verdict(loose, "tool", 0)), Some(Kind::Installer));
+        assert_eq!(dropped(place_verdict(loose, "Hades", 9)), Some(Kind::Installer), "a loose file never borrows proof from the shared folder");
+        assert_eq!(place_verdict(nested, "Hades", ENOUGH), Verdict::Accept);
+        assert_eq!(dropped(place_verdict(nested, "Hades", 0)), Some(Kind::NoGameFiles), "kept under Filtered out, not lost");
+        assert_eq!(dropped(place_verdict(nested, "Hades 1.2.3", 0)), Some(Kind::NoGameFiles), "a versioned game folder in Downloads is kept for review");
+        assert_eq!(place_verdict(Placement::Other, "Hades", 0), Verdict::Accept, "no evidence either way: the name rules already passed");
+        assert_eq!(dropped(place_verdict(Placement::Other, "Rainmeter-4.5.28", 0)), Some(Kind::Installer));
+        assert_eq!(place_verdict(Placement::Other, "Rainmeter-4.5.28", ENOUGH), Verdict::Accept, "a versioned name with real game files next to it is kept");
+        assert!(!needs_proof(Placement::GameFolder, "x") && !needs_proof(Placement::Downloads { loose: true }, "x") && !needs_proof(Placement::Other, "x"));
+        assert!(needs_proof(Placement::Program, "x") && needs_proof(nested, "x") && needs_proof(Placement::Other, "x 1.0"));
+    }
+    #[test] fn modding_tools_and_editors_are_rejected_but_stay_rescuable() {
+        for (folders, name) in [(&["Repentance", "tools", "RoomEditor"][..], "RoomEditor"), (&["Isaac"][..], "IsaacAnimationEditor"), (&["Dev Tools"][..], "viewer")] {
+            assert!(matches!(evaluate(folders, name, 9 * MB), Verdict::Reject { kind: Kind::Keyword, .. }), "{name}");
+        }
+        assert_eq!(evaluate(&["Games", "Toolbox Tycoon"], "ToolboxTycoon", 30 * MB), Verdict::Accept, "whole words only: “Toolbox” is not “tool”");
+        assert!(matches!(evaluate(&["Games", "Tools Up"], "ToolsUp", 30 * MB), Verdict::Reject { kind: Kind::Keyword, .. }), "a real title with the word is filtered, not lost: see the walker tests");
+    }
+    #[test] fn the_launcher_never_offers_itself() {
+        for name in ["Aether Hub", "aether-hub", "AetherHub"] { assert!(matches!(evaluate(&[], name, 6 * MB), Verdict::Reject { kind: Kind::KnownTool, .. }), "{name}"); }
+        assert!(matches!(evaluate(&[], "wps_office_inst", 6 * MB), Verdict::Reject { kind: Kind::Keyword, .. }));
+        assert_eq!(evaluate(&[], "Instinct", 6 * MB), Verdict::Accept, "“inst” matches whole words only");
+    }
+
+    /// Builds a folder tree under a scratch root and runs the real walker over `root`.
+    fn walk(temp: &Path, root: &Path, files: &[(&str, u64)]) -> Scan {
+        for (rel, size) in files { sparse(&temp.join(rel), *size); }
+        let mut scan = Scan { out: ScanResult::default(), managed: vec![] };
+        custom(&mut scan, root, &mut Watch::detached());
+        scan
+    }
+    fn titles(scan: &Scan) -> Vec<String> { let mut t: Vec<_> = scan.out.games.iter().map(|g| g.title.clone()).collect(); t.sort(); t }
+    fn filtered(scan: &Scan) -> Vec<String> { let mut t: Vec<_> = scan.out.filtered.iter().map(|f| f.game.title.clone()).collect(); t.sort(); t }
+
+    #[test] fn a_scan_of_program_files_offers_only_programs_that_ship_game_files() {
+        let temp = scratch();
+        let root = temp.join("Program Files");
+        let scan = walk(&temp, &root, &[
+            ("Program Files/Android/adb.exe", 6 * MB), ("Program Files/Rainmeter/Rainmeter.exe", 5 * MB),
+            // Media or office tools ship asset folders, but that alone is not proof.
+            ("Program Files/Office Suite/suite.exe", 9 * MB), ("Program Files/Office Suite/resources.pak", MB),
+            ("Program Files/Office Suite/assets/a.png", 10), ("Program Files/Office Suite/sounds/a.wav", 10), ("Program Files/Office Suite/music/a.mp3", 10),
+            ("Program Files/Cool Game/CoolGame.exe", 40 * MB), ("Program Files/Cool Game/steam_api64.dll", MB),
+            ("Program Files/Hollow/Hollow.exe", 20 * MB), ("Program Files/Hollow/UnityPlayer.dll", 20 * MB), ("Program Files/Hollow/Hollow_Data/level0", 10),
+            ("Program Files/Tunic/Binaries/Win64/Tunic-Win64-Shipping.exe", 90 * MB),
+            ("Program Files/Bundled/Bundled.exe", 30 * MB), ("Program Files/Bundled/FMOD.dll", MB),
+            // The game's own files sit one level above an executable in `bin`, but a tool in an ordinary subfolder cannot borrow them.
+            ("Program Files/Wrapped/bin/Wrapped.exe", 30 * MB), ("Program Files/Wrapped/steam_api64.dll", MB),
+            ("Program Files/Suite/steam_api64.dll", MB), ("Program Files/Suite/Extras/worker.exe", 9 * MB),
+        ]);
+        assert_eq!(titles(&scan), ["Bundled", "CoolGame", "Hollow", "Tunic Win64 Shipping", "Wrapped"]);
+        assert_eq!(scan.out.stats.programs, 4, "adb, Rainmeter, the office suite and the tool in a subfolder");
+        assert!(filtered(&scan).is_empty(), "dropped programs are not offered for rescue");
+        let _ = fs::remove_dir_all(temp);
+    }
+    #[test] fn a_scan_of_downloads_drops_installers_and_keeps_game_folders() {
+        let temp = scratch();
+        let root = temp.join("Downloads");
+        let scan = walk(&temp, &root, &[
+            ("Downloads/Rainmeter-4.5.28.exe", 5 * MB), ("Downloads/widget.exe", 5 * MB), ("Downloads/python 3.13.6 amd64.exe", 30 * MB),
+            ("Downloads/steam_api64.dll", MB), // a stray dll beside loose files proves nothing
+            ("Downloads/Cool Game/CoolGame.exe", 40 * MB), ("Downloads/Cool Game/steam_api64.dll", MB),
+            ("Downloads/Plain Game/PlainGame.exe", 40 * MB),
+            ("Downloads/Plain Game 2.0/Plain Game 2.0.exe", 40 * MB),
+        ]);
+        assert_eq!(titles(&scan), ["CoolGame"]);
+        assert_eq!(filtered(&scan), ["Plain Game 2.0", "PlainGame"].map(String::from).to_vec(), "no proof and not obviously an installer: offered under Filtered out");
+        let s = &scan.out.stats;
+        assert_eq!((s.installers, s.no_game_files), (3, 2), "installers {}, no game files {}", s.installers, s.no_game_files);
+        let _ = fs::remove_dir_all(temp);
+    }
+    #[test] fn appdata_programs_need_proof_but_games_folders_do_not() {
+        let temp = scratch();
+        let root = temp.join("Users/Sam");
+        let scan = walk(&temp, &root, &[
+            ("Users/Sam/AppData/Local/Aether Hub/Aether Hub.exe", 6 * MB), ("Users/Sam/AppData/Local/Programs/Libre/libre.exe", 9 * MB),
+            ("Users/Sam/AppData/Local/Ubisoft/r6/R6.exe", 90 * MB), ("Users/Sam/AppData/Local/Ubisoft/r6/steam_api64.dll", MB),
+            ("Users/Sam/.cargo/bin/cargo-thing.exe", 9 * MB),
+            ("Users/Sam/Documents/Games/Hades/Hades.exe", 40 * MB),
+        ]);
+        assert!(!titles(&scan).iter().any(|t| t == "libre" || t.starts_with("cargo") || t.starts_with("Aether")), "{:?}", titles(&scan));
+        assert!(titles(&scan).contains(&"R6".to_string()), "a game installed under AppData is kept when it ships game files");
+        let _ = fs::remove_dir_all(temp);
+    }
+    #[test] fn a_games_folder_is_trusted_even_inside_program_files() {
+        let temp = scratch();
+        let root = temp.join("Program Files");
+        let scan = walk(&temp, &root, &[("Program Files/Ubisoft/games/Far Cry/FarCry.exe", 50 * MB), ("Program Files/Ubisoft/Connect/UbisoftConnect.exe", 50 * MB)]);
+        assert_eq!(titles(&scan), ["FarCry"]);
+        let _ = fs::remove_dir_all(temp);
+    }
+    #[test] fn a_synthetic_scan_review_shaped_like_a_real_drive_keeps_only_the_games() {
+        // (path, game files beside it, kept?). These are made-up names in the shapes a real drive scan produced:
+        // tools under Program Files and AppData, installers and loose downloads, and games in folders that say so.
+        let cases: &[(&str, &[&str], bool)] = &[
+            ("C/Program Files/Git/usr/bin/bash.exe", &[], false), ("C/Program Files/Google/Chrome/Application/launcher.exe", &[], false),
+            ("C/Program Files/Wireshark/Wireshark.exe", &[], false), ("C/Program Files/Blender/blender.exe", &["python311.dll"], false),
+            ("C/Program Files/VLC/vlc.exe", &[], false), ("C/Program Files/Some Game/SomeGame.exe", &["steam_api.dll"], true),
+            ("C/Users/Sam/AppData/Local/Programs/Tool/tool.exe", &[], false), ("C/Users/Sam/AppData/Local/Notes/notes.exe", &[], false),
+            ("C/Users/Sam/Downloads/Cool-1.4.2-setup.exe", &[], false), ("C/Users/Sam/Downloads/gimp 2.10.exe", &[], false),
+            ("C/Users/Sam/Downloads/portable.exe", &[], false), ("C/Users/Sam/Downloads/Cool Game/CoolGame.exe", &[], false),
+            ("D/Games/Hades/Hades.exe", &[], true), ("D/Games/Odd Game/OddGame.exe", &[], true), ("D/Stuff/Odd Game 2.0/Odd Game 2.0.exe", &["fmod.dll"], true),
+            ("D/Stuff/Cool Tool 3.1/Cool Tool 3.1.exe", &[], false),
+        ];
+        let wrong: Vec<_> = cases.iter().filter_map(|(path, beside, expected)| {
+            let parts: Vec<&str> = path.split('/').collect();
+            let file = parts[parts.len() - 1].trim_end_matches(".exe");
+            let place = placement(&parts);
+            let score = if needs_proof(place, file) { evidence(file, &listing(beside, &[])).score } else { 0 };
+            (( place_verdict(place, file, score) == Verdict::Accept) != *expected).then_some(*path)
+        }).collect();
+        assert!(wrong.is_empty(), "misjudged: {wrong:?}");
+    }
+    #[test] fn known_limitation_an_unmarked_program_in_a_neutral_folder_is_still_offered() {
+        // Outside Program Files, AppData, Downloads and a games folder there is nothing to judge by except the name, so a
+        // tool the name rules do not recognise is offered. The review dialog is where the user rejects it.
+        assert_eq!(place_verdict(placement(&["D", "Stuff", "Mod Tool", "modtool"]), "modtool", 0), Verdict::Accept);
     }
 }
