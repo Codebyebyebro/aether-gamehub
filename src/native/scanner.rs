@@ -385,6 +385,9 @@ pub fn parse_vdf(text: &str) -> Result<Value, String> {
     }
 
     fn sparse(path: &Path, size: u64) { fs::create_dir_all(path.parent().unwrap()).unwrap(); File::create(path).unwrap().set_len(size).unwrap(); }
+    /// A fresh scratch folder spelled the way the scanner reports paths (canonical, no `\\?\`). A raw temp path can differ:
+    /// on GitHub's Windows runners it uses 8.3 short names ("RUNNER~1"), so comparing targets against it never matches.
+    fn scratch() -> PathBuf { PathBuf::from(util::clean_path(&std::env::temp_dir().canonicalize().unwrap())).join(format!("aether-scan-{}", uuid::Uuid::new_v4().simple())) }
     #[test] fn walker_applies_every_rule_relative_to_the_chosen_root() {
         let temp = std::env::temp_dir().join(format!("aether-scan-{}", uuid::Uuid::new_v4().simple()));
         // The root's own name contains "download" and "setup": it is the user's choice, so it is never judged.
@@ -420,11 +423,11 @@ pub fn parse_vdf(text: &str) -> Result<Value, String> {
         let _ = fs::remove_dir_all(temp);
     }
     #[test] fn scan_is_deterministic_and_removes_duplicates_from_overlapping_roots() {
-        let temp = std::env::temp_dir().join(format!("aether-scan-{}", uuid::Uuid::new_v4().simple()));
+        let temp = scratch();
         sparse(&temp.join("Games/Hades/Hades.exe"), 4 * MB);
         let result = scan(vec![temp.join("Games").to_string_lossy().into_owned(), temp.join("Games/Hades").to_string_lossy().into_owned()], &mut Watch::detached()).unwrap();
         let ours: Vec<_> = result.games.iter().filter(|g| g.target.contains("Hades.exe") && g.target.starts_with(temp.to_string_lossy().as_ref())).collect();
-        assert_eq!(ours.len(), 1);
+        assert_eq!(ours.len(), 1, "under {} found {:?}", temp.display(), result.games.iter().map(|g| g.target.as_str()).collect::<Vec<_>>());
         assert!(result.stats.duplicates >= 1 && result.details.contains_key(&ours[0].id));
         let _ = fs::remove_dir_all(temp);
     }
@@ -445,7 +448,7 @@ pub fn parse_vdf(text: &str) -> Result<Value, String> {
         let _ = fs::remove_dir_all(temp);
     }
     #[test] fn progress_names_each_folder_once_and_ends_complete() {
-        let temp = std::env::temp_dir().join(format!("aether-scan-{}", uuid::Uuid::new_v4().simple()));
+        let temp = scratch();
         sparse(&temp.join("A/Hades/Hades.exe"), 3 * MB); sparse(&temp.join("B/Celeste/Celeste.exe"), 3 * MB);
         // "a" is the same folder as "A" to Windows, so it is searched once.
         let folders = ["A", "B", "a"].map(|f| temp.join(f).to_string_lossy().into_owned()).to_vec();
@@ -454,7 +457,7 @@ pub fn parse_vdf(text: &str) -> Result<Value, String> {
         assert_eq!(seen.iter().map(|p| (p.step, p.steps)).collect::<Vec<_>>(), [(0, 3), (1, 3), (2, 3), (3, 3)]);
         assert!(seen[0].folder.is_empty() && seen[1].folder.ends_with('A') && seen[2].folder.ends_with('B') && seen[3].folder.is_empty());
         let ours = result.games.iter().filter(|g| g.target.starts_with(temp.to_string_lossy().as_ref())).count();
-        assert!(!result.cancelled && ours == 2);
+        assert!(!result.cancelled && ours == 2, "under {} found {:?}", temp.display(), result.games.iter().map(|g| g.target.as_str()).collect::<Vec<_>>());
         assert!(seen[3].found as usize >= 2 && seen[3].checked >= 6, "{:?}", seen[3]);
         let _ = fs::remove_dir_all(temp);
     }

@@ -238,11 +238,13 @@ mod tests {
     use super::*;
     use crate::models::Game;
     const KEY: &str = "0123456789abcdef0123456789abcdef";
+    /// An absolute .exe path on the platform the tests run on: Windows needs a drive letter, so "/games/..." is rejected there.
+    fn exe_path() -> String { if cfg!(windows) { r"C:\Games\Hades\hades.exe".into() } else { "/games/hades.exe".into() } }
     /// A saved library with a managed cover, a banner from Steam, a preset wallpaper and a secret.
     fn seed(sandbox: &storage::testutil::Sandbox) -> (Library, PathBuf) {
         let covers = storage::root().unwrap().join("covers");
         let cover = covers.join("aaa.webp"); fs::write(&cover, b"RIFF-fake-webp").unwrap();
-        let mut hades = Game::new("Hades".into(), "Custom", "/games/hades.exe".into());
+        let mut hades = Game::new("Hades".into(), "Custom", exe_path());
         hades.cover = cover.to_string_lossy().into_owned();
         let mut elden = Game::new("ELDEN RING".into(), "Steam", "steam://rungameid/1245620".into()); elden.steam_art("1245620");
         let mut library = Library { games: vec![hades.clone(), elden], settings: Default::default() };
