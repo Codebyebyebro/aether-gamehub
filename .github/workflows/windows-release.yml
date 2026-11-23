@@ -178,8 +178,14 @@ jobs:
         env:
           VERSION: ${{ steps.ver.outputs.version }}
         run: |
+          changes=$(awk -v v="$VERSION" '/^## /{ on = ($2 == v); next } on' docs/CHANGELOG.md)
+          [ -n "$(printf '%s' "$changes" | tr -d '[:space:]')" ] || { echo "::error::docs/CHANGELOG.md has no section named $VERSION"; exit 1; }
           {
             echo "Aether Hub $VERSION"
+            echo
+            echo "## What's new"
+            echo
+            printf '%s\n' "$changes"
             echo
             echo "**This installer is not code-signed yet**, so Windows SmartScreen may warn when you run it (choose More info, then Run anyway). To check that you have the file this repository built, run 'Get-FileHash .\\Aether-Hub_${VERSION}_x64-setup.exe' in PowerShell and compare it with SHA256SUMS.txt."
             echo
