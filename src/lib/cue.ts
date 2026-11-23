@@ -51,3 +51,26 @@ export function playSelectCue(now: number = performance.now()) {
     const source = e.context.createBufferSource(); source.buffer = buffer; source.connect(e.gain); source.start();
   });
 }
+
+/** Console mode's start-up chime: three soft rising notes (C5, G5, C6), each fading out, about 1.4 s in all. */
+export const BOOT_NOTES: readonly { hz: number; at: number; length: number }[] = [
+  { hz: 523.25, at: 0, length: 0.9 }, { hz: 783.99, at: 0.16, length: 0.9 }, { hz: 1046.5, at: 0.32, length: 1.1 },
+];
+/** Plays the start-up chime, synthesised (no sound file). Silent when navigation sounds are switched off. */
+export function playBootChime() {
+  if (!enabled) return;
+  const e = start(); if (!e) return;
+  // An audio device that cannot make tones just stays silent; a chime is never worth an error.
+  const play = () => { try {
+    const t0 = e.context.currentTime + 0.05;
+    for (const note of BOOT_NOTES) {
+      const osc = e.context.createOscillator(); const env = e.context.createGain();
+      osc.type = "sine"; osc.frequency.value = note.hz;
+      env.gain.setValueAtTime(0.0001, t0 + note.at);
+      env.gain.exponentialRampToValueAtTime(0.5, t0 + note.at + 0.03);
+      env.gain.exponentialRampToValueAtTime(0.0001, t0 + note.at + note.length);
+      osc.connect(env); env.connect(e.gain); osc.start(t0 + note.at); osc.stop(t0 + note.at + note.length + 0.05);
+    }
+  } catch { /* silent */ } };
+  if (e.context.state === "suspended") void e.context.resume().then(play).catch(() => {}); else play();
+}

@@ -169,6 +169,12 @@ async fn artwork_color(reference: String) -> Result<palette::Rgb, String> {
     let _permit = ART_JOBS.acquire().await.map_err(|e| e.to_string())?;
     tauri::async_runtime::spawn_blocking(move || palette::of_reference(&reference)).await.map_err(|e| e.to_string())?
 }
+/// Console mode at start-up: whether a game controller is connected right now (Windows only; waits up to 1.5 s for
+/// Windows to list controllers it already knows about).
+#[tauri::command]
+async fn controller_connected() -> bool {
+    tauri::async_runtime::spawn_blocking(|| padwatch::connected(Duration::from_millis(1500))).await.unwrap_or(false)
+}
 /// Stops a running "Find missing artwork" after the game it is on; what was found so far is kept.
 #[tauri::command]
 async fn cancel_artwork() { art_finder::cancel(); }
@@ -322,7 +328,7 @@ fn main() {
             background::init(app.handle());
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![load_library, save_library, pick_file, import_artwork, resolve_artwork, scan_games, cancel_scan, launch_game, export_shortcuts, grid_artwork, startup_notice, load_playtime, backup_overview, backup_now, backup_export, backup_restore, open_backup_folder, discord_status, discord_test, steam_sync_now, background_status, take_wake_request, check_update, open_releases_page, diagnostics, log_interface_error, missing_games, find_artwork, cancel_artwork, artwork_color])
+        .invoke_handler(tauri::generate_handler![load_library, save_library, pick_file, import_artwork, resolve_artwork, scan_games, cancel_scan, launch_game, export_shortcuts, grid_artwork, startup_notice, load_playtime, backup_overview, backup_now, backup_export, backup_restore, open_backup_folder, discord_status, discord_test, steam_sync_now, background_status, take_wake_request, check_update, open_releases_page, diagnostics, log_interface_error, missing_games, find_artwork, cancel_artwork, artwork_color, controller_connected])
         .build(tauri::generate_context!())
         .expect("Aether Hub could not initialize");
     app.run(|handle, event| {

@@ -75,3 +75,29 @@ html[data-input="pad"] .game-cover:focus { outline-offset: 2px; }
 :root[data-tint='on'] .bigbox-backdrop { opacity: 0.32; }
 @keyframes tint-in { from { opacity: 0; } }
 .performance .bigbox-backdrop { display: none; }
+
+/* Console home (Big Box). The selected game's art fills the screen under a solid shade that Living colors tints. */
+.console-hero { position: absolute; inset: 0; z-index: 0; animation: tint-in 0.6s ease both; }
+.console-hero img { height: 100%; width: 100%; object-fit: cover; }
+.console-shade { position: absolute; inset: 0; z-index: 0; pointer-events: none; background-color: rgb(8 11 20 / 0.58); transition: background-color 0.8s ease; }
+:root[data-tint='on'] .console-shade { background-color: color-mix(in srgb, rgb(8 11 20 / 0.64) 74%, rgb(var(--game-tint) / 0.64)); }
+.console-clock { font-size: 15px; font-weight: 600; letter-spacing: 0.02em; }
+.console-row { scrollbar-width: none; }
+.console-row::-webkit-scrollbar { display: none; }
+.console-tile { width: 92px; aspect-ratio: 2 / 3; opacity: 0.72; box-shadow: 0 8px 24px rgb(0 0 0 / 0.35); transition: width 0.22s ease, opacity 0.22s ease, box-shadow 0.22s ease; }
+.console-tile.is-on { width: 126px; opacity: 1; box-shadow: 0 0 0 3px #fff, 0 14px 34px rgb(0 0 0 / 0.5); }
+.console-tile:hover { opacity: 1; }
+.console-eyebrow { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.2em; color: rgb(255 255 255 / 0.78); }
+.console-title { margin-top: 0.35rem; font-size: clamp(2.25rem, 5vw, 4.25rem); font-weight: 800; line-height: 1.04; letter-spacing: -0.02em; text-shadow: 0 2px 18px rgb(0 0 0 / 0.45); }
+.console-play { display: inline-flex; height: 3rem; align-items: center; gap: 0.6rem; border-radius: 1rem; background: #fff; padding: 0 1.75rem; font-size: 15px; font-weight: 700; color: #131a2c; transition: transform 0.15s ease; }
+.console-play:hover { transform: scale(1.03); }
+.console-round { display: inline-flex; height: 3rem; width: 3rem; align-items: center; justify-content: center; border-radius: 9999px; border: 1px solid rgb(255 255 255 / 0.28); background: rgb(255 255 255 / 0.14); transition: background-color 0.15s ease; }
+.console-round:hover { background: rgb(255 255 255 / 0.26); }
+.console-details { background-color: rgb(10 14 24 / 0.74); border: 1px solid rgb(255 255 255 / 0.12); backdrop-filter: blur(18px); }
+
+/* Console start: the splash shown while Big Box opens with a controller connected. */
+.boot-splash { position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.1rem; background: #0b0f1a; color: #fff; animation: boot-out 0.5s ease 1.5s both; pointer-events: none; }
+.boot-splash img { height: 84px; width: 84px; animation: boot-in 0.9s cubic-bezier(.2,.8,.2,1) both; }
+.boot-splash span { font-family: 'Manrope', sans-serif; font-size: 22px; font-weight: 800; letter-spacing: -0.01em; animation: boot-in 0.9s cubic-bezier(.2,.8,.2,1) 0.18s both; }
+@keyframes boot-in { from { opacity: 0; transform: scale(0.82) translateY(6px); } }
+@keyframes boot-out { to { opacity: 0; visibility: hidden; } }

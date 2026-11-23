@@ -158,6 +158,7 @@ fn finish(app: &AppHandle, id: &str, last_seen: u64) {
     let Some((ended, next)) = remove(id) else { return; };
     record(app, &ended, last_seen);
     match next { Some((title, started_at)) => discord::show(&title, started_at), None => discord::clear() }
+    crate::background::after_session(app);
 }
 /// Called as the launcher quits while a game is still running, so that time is not lost.
 pub fn flush_all(app: &AppHandle) {

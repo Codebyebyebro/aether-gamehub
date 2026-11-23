@@ -43,6 +43,17 @@ mod imp {
         result
     }
     pub fn running() -> bool { RUNNING.load(Ordering::SeqCst) }
+    /// True when Windows lists at least one game controller. Windows fills that list a moment after it is first asked,
+    /// so an empty answer is checked again for up to `wait`. Only the count is read, never a button.
+    pub fn connected(wait: Duration) -> bool {
+        let _ = unsafe { RoInitialize(RO_INIT_MULTITHREADED) };
+        let begun = Instant::now();
+        loop {
+            if RawGameController::RawGameControllers().and_then(|list| list.Size()).map(|n| n > 0).unwrap_or(false) { return true; }
+            if begun.elapsed() >= wait { return false; }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
 
     #[cfg(test)]
     mod tests {
@@ -57,9 +68,11 @@ mod imp {
     }
 }
 #[cfg(windows)]
-pub use imp::{running, start};
+pub use imp::{connected, running, start};
 
 #[cfg(not(windows))]
 pub fn start(_: impl Fn() + Send + Sync + 'static) -> Result<(), String> { Err("Controller wake-up needs Windows".into()) }
 #[cfg(not(windows))]
 pub fn running() -> bool { false }
+#[cfg(not(windows))]
+pub fn connected(_: std::time::Duration) -> bool { false }

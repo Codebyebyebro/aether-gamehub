@@ -35,6 +35,8 @@ export interface Settings {
   checkUpdates: boolean;
   /** "Living colors": the interface takes on the colours of the game in focus. Performance mode turns it off. */
   livingColors: boolean;
+  /** Console mode: with a controller connected, start in Big Box and come back to it when a game ends. */
+  consoleMode: boolean;
 }
 export interface Library { games: Game[]; settings: Settings }
 /** What the scan review shows about a candidate; never saved with the game. */
@@ -46,7 +48,7 @@ export interface ScanResult { games: Game[]; warnings: string[]; details: Record
 /** The `aether:scan-progress` event. `step` is 0 while store lists are read, then one per custom folder, and `steps` when done. */
 export interface ScanProgress { scanId: string; step: number; steps: number; checked: number; found: number; folder: string }
 export const desktop = isTauri();
-export const defaults: Settings = { theme: "cream", accent: "#5b4bd6", view: "poster", size: 170, gap: 22, radius: 14, titles: true, performance: false, sounds: true, wallpaper: "", blur: 0, dim: 30, afterLaunch: "minimize", folders: [], onboarded: false, backupEnabled: true, backupDir: "", backupKeep: 10, discordEnabled: false, discordAppId: "", steamSyncEnabled: false, steamProfile: "", steamApiKey: "", steamSyncHours: 6, keepInTray: false, shortcut: false, startWithWindows: false, padWake: false, checkUpdates: false, livingColors: true };
+export const defaults: Settings = { theme: "cream", accent: "#5b4bd6", view: "poster", size: 170, gap: 22, radius: 14, titles: true, performance: false, sounds: true, wallpaper: "", blur: 0, dim: 30, afterLaunch: "minimize", folders: [], onboarded: false, backupEnabled: true, backupDir: "", backupKeep: 10, discordEnabled: false, discordAppId: "", steamSyncEnabled: false, steamProfile: "", steamApiKey: "", steamSyncHours: 6, keepInTray: false, shortcut: false, startWithWindows: false, padWake: false, checkUpdates: false, livingColors: true, consoleMode: true };
 const showcase = [
   ["1245620", "ELDEN RING"], ["1091500", "Cyberpunk 2077"], ["1086940", "Baldur’s Gate 3"],
   ["1593500", "God of War"], ["1151640", "Horizon Zero Dawn"], ["1174180", "Red Dead Redemption 2"],
@@ -101,6 +103,8 @@ export async function findArtwork(games: { id: string; title: string }[], key: s
   if (!desktop) throw new Error("Finding artwork needs the Windows desktop app. This browser preview does not look anything up.");
   return invoke("find_artwork", { games, key });
 }
+/** Whether Windows lists a game controller right now. The browser preview has no way to know, so it says no. */
+export async function controllerConnected(): Promise<boolean> { return desktop ? invoke("controller_connected") : false; }
 /** Stops a running lookup after the game it is on. */
 export async function cancelArtwork(): Promise<void> { if (desktop) return invoke("cancel_artwork"); }
 
