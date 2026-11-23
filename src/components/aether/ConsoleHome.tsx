@@ -8,6 +8,8 @@ import { formatPlaytime } from "@/lib/format";
 import type { AbsentMap } from "@/lib/absent";
 import { useController } from "@/hooks/useController";
 import { prefetchColors } from "@/hooks/useLivingColors";
+import { playCue } from "@/lib/cue";
+import { HOME_ACTIONS, DETAIL_ACTIONS, rowScroll, type ConsoleAction } from "@/lib/consoleNav";
 import PadHints from "@/components/aether/PadHints";
 import { Artwork, AbsentBadge, type Actions, type Category } from "@/components/aether/GameViews";
 
@@ -30,29 +32,50 @@ export default function ConsoleHome({ games, times, settings, actions, close, ca
   const ordered = useMemo(() => sortGames(games, "recent", times), [games, times]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [details, setDetails] = useState(false);
+  /** Where the controller is: the row of games, or the buttons under the title (Down goes there, Up comes back). */
+  const [zone, setZone] = useState<"row" | "actions">("row");
+  const [actionIndex, setActionIndex] = useState(0);
   const current = ordered.find(g => g.id === selectedId) ?? ordered[0];
   const index = current ? ordered.indexOf(current) : -1;
   const clock = useClock();
   const row = useRef<HTMLDivElement>(null);
+  const buttons = details ? DETAIL_ACTIONS : HOME_ACTIONS;
 
-  function move(step: number) { if (!ordered.length) return; setSelectedId(ordered[(index + step + ordered.length) % ordered.length].id); }
+  function move(step: number) { if (ordered.length < 2) return; setSelectedId(ordered[(index + step + ordered.length) % ordered.length].id); playCue("move"); }
   function cycle(step: number) { category.set(category.options[(category.options.indexOf(category.value) + step + category.options.length) % category.options.length]); }
+  function moveAction(step: number) { const next = Math.max(0, Math.min(buttons.length - 1, actionIndex + step)); if (next !== actionIndex) { setActionIndex(next); playCue("move"); } }
+  function toActions() { if (zone !== "actions") { setZone("actions"); setActionIndex(0); playCue("move"); } }
+  function toRow() { if (zone !== "row" && !details) { setZone("row"); playCue("move"); } }
+  function openDetails(open: boolean) { setDetails(open); setZone(open ? "actions" : "row"); setActionIndex(0); if (open) playCue("open"); }
   const play = () => { if (current) actions.launch(current); };
-  const favorite = () => { if (current) actions.favorite(current); };
+  const favorite = () => { if (current) { actions.favorite(current); playCue("favorite"); } };
+  const run = (action: ConsoleAction) => { if (action === "play") play(); else if (action === "details") openDetails(true); else if (action === "favorite") favorite(); else openDetails(false); };
 
-  useEffect(() => { setSelectedId(null); setDetails(false); }, [category.value]);
+  useEffect(() => { setSelectedId(null); setDetails(false); setZone("row"); }, [category.value]);
   useEffect(() => { onCurrent?.(current); }, [current, onCurrent]);
   useEffect(() => () => onCurrent?.(undefined), [onCurrent]);
   // Neighbours' colours are fetched ahead, so Living colors is ready before the selection gets there.
   const neighbours = index >= 0 ? [1, -1, 2, -2].map(n => ordered[(index + n + ordered.length) % ordered.length]) : [];
   const neighbourKey = neighbours.map(g => g.id).join();
   useEffect(() => { prefetchColors(neighbours); }, [neighbourKey]); // eslint-disable-line react-hooks/exhaustive-deps -- keyed by the games, not the array
-  useEffect(() => { row.current?.querySelector<HTMLElement>(`[data-tile="${current?.id}"]`)?.scrollIntoView({ block: "nearest", inline: "center", behavior: settings.performance ? "auto" : "smooth" }); }, [current?.id, settings.performance]);
+  // Only ever scroll the row sideways, to where the selected tile will sit once it has finished growing. Measuring a
+  // tile mid-animation, or letting the browser scroll vertically as well, is what made the row jump up and down.
+  useEffect(() => { const r = row.current; if (r && index >= 0) r.scrollTo({ left: rowScroll(index, r.clientWidth), behavior: settings.performance ? "auto" : "smooth" }); }, [index, settings.performance]);
+  // The focused button follows the controller, so its ring shows and Enter or a screen reader agree with it.
+  useEffect(() => {
+    const root = document.querySelector<HTMLElement>('[aria-label="Big Box library"]');
+    if (zone === "actions") root?.querySelector<HTMLElement>(`[data-console-action="${buttons[actionIndex]}"]`)?.focus({ preventScroll: true });
+    else if (root && root.contains(document.activeElement) && document.activeElement !== root) root.focus({ preventScroll: true });
+  }, [zone, actionIndex, details, buttons]);
 
   const pad = useController({
-    left: () => { if (!details) move(-1); }, right: () => { if (!details) move(1); },
-    confirm: play, details: () => setDetails(d => !d), secondary: favorite,
-    back: () => { if (details) setDetails(false); else close(); },
+    left: () => { if (zone === "row" && !details) move(-1); else moveAction(-1); },
+    right: () => { if (zone === "row" && !details) move(1); else moveAction(1); },
+    down: () => { if (!details) toActions(); },
+    up: () => toRow(),
+    confirm: () => { if (zone === "row" && !details) play(); else run(buttons[actionIndex]); },
+    details: () => openDetails(!details), secondary: favorite,
+    back: () => { if (details) openDetails(false); else if (zone === "actions") toRow(); else close(); },
     prevTab: () => { if (!details) cycle(-1); }, nextTab: () => { if (!details) cycle(1); },
   });
   useEffect(() => { if (desktop) getCurrentWindow().setFullscreen(true).catch(e => toast.error(String(e))); return () => { if (desktop) getCurrentWindow().setFullscreen(false).catch(() => {}); }; }, []);
@@ -65,17 +88,19 @@ export default function ConsoleHome({ games, times, settings, actions, close, ca
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       const onButton = !!(e.target as HTMLElement).closest("button");
-      if (["Escape", "ArrowRight", "ArrowLeft"].includes(e.key)) e.preventDefault();
-      if (e.key === "Escape") { if (details) setDetails(false); else close(); }
-      if (e.key === "ArrowRight" && !details) move(1);
-      if (e.key === "ArrowLeft" && !details) move(-1);
-      if ((e.key === "i" || e.key === "I") && !e.ctrlKey && !e.altKey) setDetails(d => !d);
+      if (["Escape", "ArrowRight", "ArrowLeft", "ArrowUp", "ArrowDown"].includes(e.key)) e.preventDefault();
+      if (e.key === "Escape") { if (details) openDetails(false); else if (zone === "actions") toRow(); else close(); }
+      if (e.key === "ArrowRight") { if (zone === "row" && !details) move(1); else moveAction(1); }
+      if (e.key === "ArrowLeft") { if (zone === "row" && !details) move(-1); else moveAction(-1); }
+      if (e.key === "ArrowDown" && !details) toActions();
+      if (e.key === "ArrowUp") toRow();
+      if ((e.key === "i" || e.key === "I") && !e.ctrlKey && !e.altKey) openDetails(!details);
       if (e.key === "Enter" && current && !onButton) { e.preventDefault(); if (!e.repeat) play(); }
       if (e.key === "Tab") {
         const root = document.querySelector<HTMLElement>('[aria-label="Big Box library"]');
-        const buttons = root?.querySelectorAll<HTMLButtonElement>("button:not([disabled])");
-        if (!buttons?.length) return;
-        const first = buttons[0], last = buttons[buttons.length - 1];
+        const all = root?.querySelectorAll<HTMLButtonElement>("button:not([disabled])");
+        if (!all?.length) return;
+        const first = all[0], last = all[all.length - 1];
         if (!root.contains(document.activeElement) || document.activeElement === root) { e.preventDefault(); (e.shiftKey ? last : first).focus(); }
         else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
         else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
@@ -88,7 +113,10 @@ export default function ConsoleHome({ games, times, settings, actions, close, ca
   const entry = current ? times[current.id] : undefined;
   const line = current ? playedLine(entry) : "";
   const playing = !!current && current.id === playingId;
-  const hints: [string, string][] = details ? [["✕", "Play"], ["△", "Favorite"], ["○", "Back"]] : [["◀ ▶", "Browse"], ["✕", "Play"], ["□", "Details"], ["△", "Favorite"], ["○", "Exit"], ["L1 R1", "Category"]];
+  const hints: [string, string][] = details ? [["◀ ▶", "Choose"], ["✕", "OK"], ["△", "Favorite"], ["○", "Back"]]
+    : zone === "actions" ? [["◀ ▶", "Choose"], ["✕", "OK"], ["▲", "Games"], ["○", "Back"]]
+    : [["◀ ▶", "Browse"], ["▼", "Options"], ["✕", "Play"], ["□", "Details"], ["△", "Favorite"], ["○", "Exit"], ["L1 R1", "Category"]];
+  const focusClass = (action: ConsoleAction) => zone === "actions" && buttons[actionIndex] === action ? "is-focus" : "";
 
   return <div role="dialog" aria-modal="true" aria-label="Big Box library" className="bigbox-bg console-home fixed inset-0 z-40 flex flex-col overflow-hidden text-white">
     {current && <div key={current.id} className="console-hero" aria-hidden><Artwork game={current} banner performance={settings.performance} /></div>}
@@ -102,7 +130,7 @@ export default function ConsoleHome({ games, times, settings, actions, close, ca
 
     {current ? <>
       <div ref={row} role="listbox" aria-label="Games" aria-activedescendant={`tile-${current.id}`} className="console-row relative z-10 mt-7 flex items-end gap-3 overflow-x-auto px-8 pb-3 pt-2">
-        {ordered.map(g => { const on = g.id === current.id; return <button key={g.id} id={`tile-${g.id}`} data-tile={g.id} role="option" aria-selected={on} aria-label={g.title} onClick={() => on ? play() : setSelectedId(g.id)} className={`console-tile shrink-0 overflow-hidden rounded-2xl ${on ? "is-on" : ""}`}><Artwork game={g} performance={settings.performance} /></button>; })}
+        {ordered.map(g => { const on = g.id === current.id; return <button key={g.id} id={`tile-${g.id}`} data-tile={g.id} role="option" aria-selected={on} aria-label={g.title} onClick={() => { setZone("row"); if (on) play(); else { setSelectedId(g.id); playCue("move"); } }} className={`console-tile shrink-0 overflow-hidden rounded-2xl ${on ? "is-on" : ""}`}><Artwork game={g} performance={settings.performance} /></button>; })}
       </div>
 
       {!details ? <main className="relative z-10 mt-auto px-8 pb-6 md:px-12">
@@ -111,15 +139,15 @@ export default function ConsoleHome({ games, times, settings, actions, close, ca
         <AbsentBadge reason={absent[current.id]} className="mt-3" />
         <p className="mt-2 text-[14px] text-white/80">{line ? line[0].toUpperCase() + line.slice(1) : "Not played yet"}</p>
         <div className="mt-6 flex items-center gap-3">
-          <button className="console-play" onClick={play}><Play size={18} fill="currentColor" />Play{pad.connected && <kbd className="pad-key ml-1 border-white/40">✕</kbd>}</button>
-          <button className="console-round" aria-label="Details" onClick={() => setDetails(true)}><Info size={20} /></button>
-          <button className="console-round" aria-label={current.favorite ? "Remove favorite" : "Favorite"} aria-pressed={current.favorite} onClick={favorite}><Heart size={20} fill={current.favorite ? "currentColor" : "none"} /></button>
+          <button data-console-action="play" className={`console-play ${focusClass("play")}`} onClick={play}><Play size={18} fill="currentColor" />Play{pad.connected && zone === "row" && <kbd className="pad-key ml-1 border-white/40">✕</kbd>}</button>
+          <button data-console-action="details" className={`console-round ${focusClass("details")}`} aria-label="Details" onClick={() => openDetails(true)}><Info size={20} /></button>
+          <button data-console-action="favorite" className={`console-round ${focusClass("favorite")}`} aria-label={current.favorite ? "Remove favorite" : "Favorite"} aria-pressed={current.favorite} onClick={favorite}><Heart size={20} fill={current.favorite ? "currentColor" : "none"} /></button>
         </div>
       </main>
       : <section aria-label={`${current.title} details`} className="console-details relative z-10 mx-8 mb-6 mt-auto flex gap-8 rounded-3xl p-6 md:mx-12 md:p-8">
         <div className="hidden aspect-[2/3] w-48 shrink-0 overflow-hidden rounded-2xl shadow-2xl md:block"><Artwork game={current} performance={settings.performance} /></div>
         <div className="min-w-0 flex-1">
-          <button className="mb-4 flex items-center gap-2 text-[12px] text-white/70 hover:text-white" onClick={() => setDetails(false)}><ArrowLeft size={14} />Back</button>
+          <p className="mb-4 flex items-center gap-2 text-[12px] text-white/60"><ArrowLeft size={14} />Details</p>
           <h1 className="display-font text-3xl font-extrabold md:text-4xl">{current.title}</h1>
           <AbsentBadge reason={absent[current.id]} className="mt-2" />
           <dl className="mt-5 grid max-w-xl grid-cols-2 gap-x-8 gap-y-4 text-[13px]">
@@ -129,8 +157,9 @@ export default function ConsoleHome({ games, times, settings, actions, close, ca
             <div><dt className="text-white/60">Favorite</dt><dd className="mt-0.5 font-semibold">{current.favorite ? "Yes" : "No"}</dd></div>
           </dl>
           <div className="mt-6 flex items-center gap-3">
-            <button className="console-play" onClick={play}><Play size={18} fill="currentColor" />Play</button>
-            <button className="console-round" aria-label={current.favorite ? "Remove favorite" : "Favorite"} aria-pressed={current.favorite} onClick={favorite}><Heart size={20} fill={current.favorite ? "currentColor" : "none"} /></button>
+            <button data-console-action="play" className={`console-play ${focusClass("play")}`} onClick={play}><Play size={18} fill="currentColor" />Play</button>
+            <button data-console-action="favorite" className={`console-round ${focusClass("favorite")}`} aria-label={current.favorite ? "Remove favorite" : "Favorite"} aria-pressed={current.favorite} onClick={favorite}><Heart size={20} fill={current.favorite ? "currentColor" : "none"} /></button>
+            <button data-console-action="back" className={`console-round ${focusClass("back")}`} aria-label="Back to games" onClick={() => openDetails(false)}><ArrowLeft size={20} /></button>
           </div>
         </div>
       </section>}

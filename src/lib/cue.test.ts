@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { bytesFromBase64, createCueGate, CUE_GAIN, CUE_MIN_GAP_MS, playSelectCue, setCueEnabled, warmCue, BOOT_NOTES, playBootChime, LAUNCH_NOTES, playLaunchCue } from "./cue.ts";
+import { bytesFromBase64, createCueGate, CUE_GAIN, CUE_MIN_GAP_MS, playSelectCue, setCueEnabled, warmCue, BOOT_NOTES, playBootChime, LAUNCH_NOTES, playLaunchCue, CUE_TONES, playCue } from "./cue.ts";
 import { SELECT_SOUND_BASE64 } from "./selectSound.ts";
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
@@ -59,10 +59,15 @@ test("switched off, nothing plays, nothing is opened, and the audio device is re
   playSelectCue(next()); await tick(); assert.equal(made.length, 1, "no new audio engine is created while off"); assert.equal(made[0].starts, 1);
   setCueEnabled(true); playSelectCue(next()); await tick(); assert.equal(made.length, 2, "switching back on starts afresh"); assert.equal(made[1].starts, 1);
 });
-test("a suspended audio device is woken and the cue is skipped rather than queued", async () => {
-  fresh("suspended"); playSelectCue(next()); await tick();
-  assert.equal(made[0].resumed, 1); assert.equal(made[0].starts, 0, "this cue is skipped so a backlog never plays later");
-  playSelectCue(next()); await tick(); assert.equal(made[0].starts, 1);
+test("a paused audio device is woken and that click still plays, but clicks meanwhile never queue up", async () => {
+  // Like a real device, it only reports "running" a moment after being asked to resume.
+  class SlowWake extends FakeAudioContext { resume() { this.resumed++; return new Promise<void>(done => setTimeout(() => { this.state = "running"; done(); }, 5)); } }
+  fresh("suspended"); g.AudioContext = SlowWake; setCueEnabled(false); setCueEnabled(true);
+  playSelectCue(next()); playSelectCue(next()); playSelectCue(next());
+  assert.equal(made[0].resumed, 1, "woken once");
+  await new Promise(r => setTimeout(r, 20)); await tick();
+  assert.equal(made[0].starts, 1, "exactly one click: the one that woke it");
+  playSelectCue(next()); await tick(); assert.equal(made[0].starts, 2, "running again: every click plays");
 });
 test("warming up opens the device and decodes ahead of the first cue, only when enabled", async () => {
   fresh("suspended"); warmCue(); await tick(); assert.equal(made.length, 1); assert.equal(made[0].decoded, 1); assert.equal(made[0].resumed, 1);
@@ -91,7 +96,7 @@ test("the start-up chime plays its three notes, and is silent when sounds are of
   let started = 0; let stopped = 0;
   class ToneContext extends FakeAudioContext {
     currentTime = 0;
-    createOscillator() { return { type: "", frequency: { value: 0 }, connect() {}, start() { started++; }, stop() { stopped++; } }; }
+    createOscillator() { return { type: "", frequency: { value: 0, setValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect() {}, start() { started++; }, stop() { stopped++; } }; }
     createGain() { return { gain: { value: 1, setValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect() {} }; }
   }
   fresh(); g.AudioContext = ToneContext; setCueEnabled(false); setCueEnabled(true);
@@ -108,4 +113,35 @@ test("the start-up chime never throws, even on an audio device that cannot make 
 test("the launch sound is quick: rising and over in under a second", () => {
   for (let i = 1; i < LAUNCH_NOTES.length; i++) assert.ok(LAUNCH_NOTES[i].hz > LAUNCH_NOTES[i - 1].hz);
   assert.ok(Math.max(...LAUNCH_NOTES.map(n => n.at + n.length)) < 1);
+});
+test("every action has its own sound: select rises, back falls, and each is short", () => {
+  const pitchChange = (kind: keyof typeof CUE_TONES) => { const t = CUE_TONES[kind]; return (t[t.length - 1].to ?? t[t.length - 1].hz) - t[0].hz; };
+  assert.ok(pitchChange("confirm") > 0, "select goes up");
+  assert.ok(pitchChange("back") < 0, "back goes down");
+  assert.ok(pitchChange("open") > 0, "open sweeps up");
+  const shapes = Object.values(CUE_TONES).map(t => JSON.stringify(t));
+  assert.equal(new Set(shapes).size, shapes.length, "no two kinds sound the same");
+  for (const [kind, tones] of Object.entries(CUE_TONES)) {
+    assert.ok(Math.max(...tones.map(t => t.at + t.length)) <= 0.3, `${kind} is a quick cue`);
+    assert.ok(tones.every(t => (t.level ?? 0.5) <= 0.35), `${kind} stays quieter than the chimes`);
+  }
+});
+test("each kind is rate-limited on its own, so a select right after a move is still heard", async () => {
+  let started = 0;
+  class ToneContext extends FakeAudioContext {
+    currentTime = 0;
+    createOscillator() { return { type: "", frequency: { value: 0, setValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect() {}, start() { started++; }, stop() {} }; }
+    createGain() { return { gain: { value: 1, setValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect() {} }; }
+  }
+  fresh(); g.AudioContext = ToneContext; setCueEnabled(false); setCueEnabled(true);
+  const t = next(1000);
+  playCue("move", t); playCue("confirm", t + 5); await tick();
+  assert.equal(made[0].starts, 1, "the click played");
+  assert.equal(started, CUE_TONES.confirm.length, "and the select sound too");
+  playCue("confirm", t + 10); await tick();
+  assert.equal(started, CUE_TONES.confirm.length, "but not the same kind twice within the gap");
+  playCue("favorite", t + 12); await tick();
+  assert.equal(started, CUE_TONES.confirm.length + CUE_TONES.favorite.length);
+  setCueEnabled(false); playCue("back", t + 500); await tick();
+  assert.equal(started, CUE_TONES.confirm.length + CUE_TONES.favorite.length, "switched off: silent");
 });

@@ -4,6 +4,10 @@ Each release has a section here named after its version. The Windows build copie
 
 ## Not released yet
 
+- **New logo.** A sharper two-tone "A" with a gold shard, on the app icon, the sidebar, Big Box and the start-up screen.
+- **A sound for every action.** Moving, selecting, going back, switching category, opening a page or menu, and adding a favorite each have their own short sound. The move click now also plays in Big Box and in the console menus, where it was missing, and it no longer goes silent after Windows pauses the audio.
+- **Fixed:** in Big Box, the row of games no longer jumps up and down while you scroll through it.
+- **Fixed:** in Big Box, the controller can now reach the Play, Details and Favorite buttons. Press **Down** to go to them, **Left** and **Right** to choose, and **Up** or **Circle** to go back to the games. The details page also has a Back button.
 - **Console mode.** With a controller connected, Aether Hub feels like a console:
   - **Starts like one.** Open Aether Hub with your controller connected and it goes straight into full-screen Big Box, with a short start-up animation and chime. Without a controller it opens as usual.
   - **A new home screen.** Big Box is now a console home screen. The selected game's artwork fills the screen, a row of game tiles runs along the top with your recently played games first, and a clock sits in the corner. **Square** opens a full-screen details page with play time, last played and platform, and **Triangle** adds or removes a favorite.

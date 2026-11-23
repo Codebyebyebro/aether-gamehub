@@ -41,42 +41,79 @@ function start(): Engine | null {
 /** Opens the audio device and decodes the click ahead of time, so the first real cue is not late. */
 export function warmCue() { if (enabled) { const e = start(); if (e && e.context.state === "suspended") void e.context.resume().catch(() => {}); } }
 
-/** Plays the selection click. Silent when switched off, too soon after the last one, or while the audio device is not running. */
+/** Set while a woken audio device is resuming, so only one click waits for it (never a backlog). */
+let waking = false;
+/**
+ * Plays the selection click. Silent when switched off or too soon after the last one. If Windows paused the audio
+ * device, it is woken and this one click plays as soon as it is running; clicks meanwhile are dropped, not queued.
+ */
 export function playSelectCue(now: number = performance.now()) {
   if (!enabled || !gate(now)) return;
   const e = start(); if (!e) return;
-  if (e.context.state === "suspended") { void e.context.resume().catch(() => {}); return; }
-  void e.buffer.then(buffer => {
+  const play = () => void e.buffer.then(buffer => {
     if (!buffer || e.context.state !== "running") return;
-    const source = e.context.createBufferSource(); source.buffer = buffer; source.connect(e.gain); source.start();
+    try { const source = e.context.createBufferSource(); source.buffer = buffer; source.connect(e.gain); source.start(); } catch { /* silent */ }
   });
+  if (e.context.state !== "suspended") { play(); return; }
+  if (waking) return;
+  waking = true;
+  void e.context.resume().then(() => { waking = false; play(); }, () => { waking = false; });
 }
 
+/** One synthesised tone: a sine (or `type`) from `hz` (gliding to `to`), starting `at` seconds in, fading over `length`. */
+export interface Tone { hz: number; at: number; length: number; to?: number; type?: OscillatorType; level?: number }
+
 /** Console mode's start-up chime: three soft rising notes (C5, G5, C6), each fading out, about 1.4 s in all. */
-export const BOOT_NOTES: readonly { hz: number; at: number; length: number }[] = [
+export const BOOT_NOTES: readonly Tone[] = [
   { hz: 523.25, at: 0, length: 0.9 }, { hz: 783.99, at: 0.16, length: 0.9 }, { hz: 1046.5, at: 0.32, length: 1.1 },
 ];
 /** Launching a game: a quick bright rise, under a second. */
-export const LAUNCH_NOTES: readonly { hz: number; at: number; length: number }[] = [
+export const LAUNCH_NOTES: readonly Tone[] = [
   { hz: 659.25, at: 0, length: 0.35 }, { hz: 987.77, at: 0.07, length: 0.45 }, { hz: 1318.51, at: 0.14, length: 0.6 },
 ];
+
+/**
+ * The console's sound set. `move` is the recorded click; the others are short synthesised tones, each with its own
+ * character, so you can hear what happened without looking: select rises, back falls, a category switch ticks twice,
+ * opening a page or menu pops upward, and a favorite sparkles.
+ */
+export type CueKind = "move" | "confirm" | "back" | "tab" | "open" | "favorite";
+export const CUE_TONES: Readonly<Record<Exclude<CueKind, "move">, readonly Tone[]>> = {
+  confirm: [{ hz: 880, at: 0, length: 0.09, level: 0.32 }, { hz: 1318.51, at: 0.045, length: 0.14, level: 0.32 }],
+  back: [{ hz: 1046.5, at: 0, length: 0.08, level: 0.26 }, { hz: 659.25, at: 0.045, length: 0.14, level: 0.26 }],
+  tab: [{ hz: 1567.98, at: 0, length: 0.05, type: "triangle", level: 0.22 }, { hz: 2093, at: 0.05, length: 0.06, type: "triangle", level: 0.22 }],
+  open: [{ hz: 440, to: 990, at: 0, length: 0.16, level: 0.28 }],
+  favorite: [{ hz: 2093, at: 0, length: 0.08, level: 0.18 }, { hz: 2637, at: 0.05, length: 0.08, level: 0.18 }, { hz: 3136, at: 0.1, length: 0.16, level: 0.18 }],
+};
+const gates = new Map<CueKind, (now: number) => boolean>();
+/** Plays one sound of the set. Each kind has its own rate limit, so a quick "select" right after a move is still heard. */
+export function playCue(kind: CueKind, now: number = performance.now()) {
+  if (kind === "move") { playSelectCue(now); return; }
+  if (!enabled) return;
+  let gateFor = gates.get(kind); if (!gateFor) { gateFor = createCueGate(); gates.set(kind, gateFor); }
+  if (!gateFor(now)) return;
+  playTones(CUE_TONES[kind], 0.005);
+}
+
 /** Plays the start-up chime, synthesised (no sound file). Silent when navigation sounds are switched off. */
-export function playBootChime() { playNotes(BOOT_NOTES); }
+export function playBootChime() { playTones(BOOT_NOTES); }
 /** Plays the launch sound when a game is started with the controller. Silent when navigation sounds are switched off. */
-export function playLaunchCue() { playNotes(LAUNCH_NOTES); }
-function playNotes(notes: readonly { hz: number; at: number; length: number }[]) {
+export function playLaunchCue() { playTones(LAUNCH_NOTES); }
+function playTones(tones: readonly Tone[], lead = 0.05) {
   if (!enabled) return;
   const e = start(); if (!e) return;
-  // An audio device that cannot make tones just stays silent; a chime is never worth an error.
+  // An audio device that cannot make tones just stays silent; a sound is never worth an error.
   const play = () => { try {
-    const t0 = e.context.currentTime + 0.05;
-    for (const note of notes) {
+    const t0 = e.context.currentTime + lead;
+    for (const tone of tones) {
       const osc = e.context.createOscillator(); const env = e.context.createGain();
-      osc.type = "sine"; osc.frequency.value = note.hz;
-      env.gain.setValueAtTime(0.0001, t0 + note.at);
-      env.gain.exponentialRampToValueAtTime(0.5, t0 + note.at + 0.03);
-      env.gain.exponentialRampToValueAtTime(0.0001, t0 + note.at + note.length);
-      osc.connect(env); env.connect(e.gain); osc.start(t0 + note.at); osc.stop(t0 + note.at + note.length + 0.05);
+      const begin = t0 + tone.at, end = begin + tone.length, peak = tone.level ?? 0.5;
+      osc.type = tone.type ?? "sine"; osc.frequency.setValueAtTime(tone.hz, begin);
+      if (tone.to) osc.frequency.exponentialRampToValueAtTime(tone.to, end);
+      env.gain.setValueAtTime(0.0001, begin);
+      env.gain.exponentialRampToValueAtTime(peak, begin + Math.min(0.02, tone.length / 4));
+      env.gain.exponentialRampToValueAtTime(0.0001, end);
+      osc.connect(env); env.connect(e.gain); osc.start(begin); osc.stop(end + 0.05);
     }
   } catch { /* silent */ } };
   if (e.context.state === "suspended") void e.context.resume().then(play).catch(() => {}); else play();
