@@ -3,8 +3,15 @@ name: Aether Hub Windows build
 #          Rust tests (including the permission-list test), all with the locked dependency files.
 # package: manual runs ("Run workflow") and v* tags only, because the release build is slow. Builds the executable and
 #          the offline installer, then installs and starts them as a first end-to-end check.
+# draft:   only on a manual run with "draft_release" ticked. Turns that run's own installer into a DRAFT release that only
+#          people with write access can see. See docs/RELEASING.md.
 on:
   workflow_dispatch:
+    inputs:
+      draft_release:
+        description: 'After a good build, also create a DRAFT release from it (nothing is public until someone presses Publish)'
+        type: boolean
+        default: false
   push:
     branches: [main, master]
     tags: ['v*']
@@ -124,3 +131,69 @@ jobs:
           name: Aether-Hub-Windows-x64-unsigned
           path: artifacts/
           if-no-files-found: error
+
+  draft:
+    needs: package
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.draft_release }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SHA: ${{ github.sha }}
+      RUN_ID: ${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: The version and the release tag
+        id: ver
+        run: |
+          set -euo pipefail
+          conf=$(jq -r .version src-tauri/tauri.conf.json)
+          cargo=$(grep -m1 '^version' src-tauri/Cargo.toml | cut -d'"' -f2)
+          echo "tauri.conf.json: $conf, Cargo.toml: $cargo"
+          [[ "$conf" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::version must look like 1.2.3"; exit 1; }
+          [ "$conf" = "$cargo" ] || { echo "::error::the two version numbers differ"; exit 1; }
+          if gh release view "v$conf" >/dev/null 2>&1; then echo "::error::a release v$conf already exists"; exit 1; fi
+          echo "version=$conf" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@v4
+        with:
+          name: Aether-Hub-Windows-x64-unsigned
+          path: built
+      - name: Check the checksums, then name the files for the release
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          ls -l built
+          (cd built && tr -d '\r' < SHA256SUMS.txt | sha256sum -c -)
+          setups=(built/*setup*.exe)
+          [ "${#setups[@]}" -eq 1 ] && [ -f "${setups[0]}" ] || { echo "::error::expected exactly one setup executable"; exit 1; }
+          # GitHub turns spaces in uploaded names into dots, which would no longer match a checksum file, so use a name without spaces.
+          mkdir release
+          cp "${setups[0]}" "release/Aether-Hub_${VERSION}_x64-setup.exe"
+          cp built/INSTALLATION.md release/INSTALLATION.md
+          (cd release && sha256sum "Aether-Hub_${VERSION}_x64-setup.exe" > SHA256SUMS.txt && cat SHA256SUMS.txt)
+      - name: Write the release notes
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          {
+            echo "Aether Hub $VERSION"
+            echo
+            echo "**This installer is not code-signed yet**, so Windows SmartScreen may warn when you run it (choose More info, then Run anyway). To check that you have the file this repository built, run 'Get-FileHash .\\Aether-Hub_${VERSION}_x64-setup.exe' in PowerShell and compare it with SHA256SUMS.txt."
+            echo
+            echo "Install: run the setup file. No Node.js, Rust or terminal is needed. INSTALLATION.md, attached below, has the details."
+            echo
+            echo "Status: this build was compiled, tested, installed silently and started (also quietly in the tray) on GitHub's Windows runners. It has not yet been tried on a physical PC with a controller, so the tray icon, the shortcut, the controller wake-up and start with Windows are still unverified in real use."
+            echo
+            echo "Built by GitHub Actions run $RUN_ID from commit $SHA."
+          } > notes.md
+          cat notes.md
+      - name: Create the draft release
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh release create "v$VERSION" --draft --target "$SHA" --title "Aether Hub $VERSION" --notes-file notes.md release/*
+          echo "Draft v$VERSION created from this run. Open the Releases page, read it, and press Publish release when ready." | tee -a "$GITHUB_STEP_SUMMARY"
