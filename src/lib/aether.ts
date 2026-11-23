@@ -1,6 +1,7 @@
 import { convertFileSrc, invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { launchIdentity } from "@/lib/paths";
+import type { Absent } from "@/lib/absent";
 
 export type Platform = "Steam" | "Epic" | "Riot" | "Custom";
 export type View = "poster" | "banner" | "list" | "carousel";
@@ -132,6 +133,8 @@ export async function checkForUpdate(): Promise<UpdateInfo> { if (!desktop) desk
 export async function openReleasesPage(): Promise<void> { if (!desktop) desktopOnly("Opening the download page"); return invoke("open_releases_page"); }
 /** The text for "Copy diagnostics", built by the program: versions, what runs in the background, memory, and the latest log entries. */
 export async function diagnostics(): Promise<string> { if (!desktop) desktopOnly("Diagnostics"); return invoke("diagnostics"); }
+/** Which games' files can no longer be found (see absent.ts). Browser preview has no files to look at, so it says so instead of answering. */
+export async function missingGames(): Promise<Absent[]> { if (!desktop) desktopOnly("Looking for missing games"); return invoke("missing_games"); }
 /** Fire and forget: tells the program an error happened in the interface so it reaches the local log. Does nothing in a browser preview. */
 export function logInterfaceError(message: string): void { if (desktop) void invoke("log_interface_error", { message }).catch(() => {}); }
 export async function discordStatus(): Promise<DiscordStatus> { return desktop ? invoke("discord_status") : { enabled: false, connected: false, playing: "", error: "" }; }

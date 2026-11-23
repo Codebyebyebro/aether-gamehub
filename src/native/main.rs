@@ -22,6 +22,7 @@ mod padwatch;
 mod background;
 mod diag;
 mod machine;
+mod presence;
 use models::{Library, ScanResult};
 use tauri::{Emitter, Manager};
 use std::{path::{Path, PathBuf}, sync::{atomic::{AtomicBool, Ordering}, Mutex}, time::Duration};
@@ -198,6 +199,15 @@ async fn diagnostics() -> String {
 /// An error that happened in the interface (a crash in a page, a promise nobody caught), for the local log.
 #[tauri::command]
 async fn log_interface_error(message: String) { diag::event("interface", &message); }
+/// Games whose file can no longer be found, or whose drive is not connected. Only games that point at an .exe on a
+/// drive are judged; store links are never reported. Waits at most four seconds, so a slow drive cannot freeze the library.
+#[tauri::command]
+async fn missing_games() -> Result<Vec<presence::Absent>, String> {
+    diag::logged("missing", tauri::async_runtime::spawn_blocking(|| -> Result<Vec<presence::Absent>, String> {
+        let games = storage::load()?.games.into_iter().map(|g| (g.id, g.target)).collect();
+        Ok(presence::check_all(games, |root| Path::new(root).exists(), |file| Path::new(file).is_file(), Duration::from_secs(4)))
+    }).await.map_err(|e| e.to_string())?)
+}
 /// True once if something (a controller connecting, the tray menu) asked for Big Box since the interface last looked.
 #[tauri::command]
 async fn take_wake_request() -> bool { background::take_wake_request() }
@@ -277,7 +287,7 @@ fn main() {
             background::init(app.handle());
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![load_library, save_library, pick_file, import_artwork, resolve_artwork, scan_games, cancel_scan, launch_game, export_shortcuts, grid_artwork, startup_notice, load_playtime, backup_overview, backup_now, backup_export, backup_restore, open_backup_folder, discord_status, discord_test, steam_sync_now, background_status, take_wake_request, check_update, open_releases_page, diagnostics, log_interface_error])
+        .invoke_handler(tauri::generate_handler![load_library, save_library, pick_file, import_artwork, resolve_artwork, scan_games, cancel_scan, launch_game, export_shortcuts, grid_artwork, startup_notice, load_playtime, backup_overview, backup_now, backup_export, backup_restore, open_backup_folder, discord_status, discord_test, steam_sync_now, background_status, take_wake_request, check_update, open_releases_page, diagnostics, log_interface_error, missing_games])
         .build(tauri::generate_context!())
         .expect("Aether Hub could not initialize");
     app.run(|handle, event| {
@@ -307,6 +317,12 @@ mod tests {
         assert!(registered.len() >= 19, "{registered:?}");
         assert_eq!(registered.difference(&allowed).collect::<Vec<_>>(), Vec::<&String>::new(), "registered but not allowed");
         assert_eq!(allowed.difference(&registered).collect::<Vec<_>>(), Vec::<&String>::new(), "allowed but not registered");
+    }
+    /// The interface reads `{ id, reason: "file" | "drive" }`; a renamed field or variant would silently show nothing.
+    #[test] fn the_missing_game_answer_has_the_names_the_interface_reads() {
+        use crate::presence::{Absence, Absent};
+        let json = serde_json::to_string(&vec![Absent { id: "a".into(), reason: Absence::File }, Absent { id: "b".into(), reason: Absence::Drive }]).unwrap();
+        assert_eq!(json, r#"[{"id":"a","reason":"file"},{"id":"b","reason":"drive"}]"#);
     }
     #[test] fn the_window_capability_grants_the_permission_set_and_nothing_broad() {
         let capability = include_str!("../../src-tauri/capabilities/main.json");
