@@ -1,0 +1,85 @@
+name: Draft a release from a build
+
+# Publishes nothing. It takes the installer from a build you already ran (the "Windows build" workflow) and attaches
+# it to a DRAFT release that only people with write access to this repository can see. Press "Publish release" on the
+# Releases page when you are happy with it; until then nobody else can download it and the in-app update check cannot see it.
+#
+# Free: it runs on a standard GitHub-hosted runner in a public repository, and release files do not count against storage.
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Number of a successful "Windows build" run (the last number in its web address)'
+        required: true
+      version:
+        description: 'Version, for example 0.2.0. Must equal "version" in src-tauri/tauri.conf.json and Cargo.toml at that run'
+        required: true
+      create_draft:
+        description: 'Create the draft release. Choose false for a dry run that checks everything and creates nothing'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  draft:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      RUN_ID: ${{ inputs.run_id }}
+      VERSION: ${{ inputs.version }}
+    steps:
+      - name: Check the inputs and the build they point at
+        id: build
+        run: |
+          set -euo pipefail
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]] || { echo "::error::run_id must be a number"; exit 1; }
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::version must look like 1.2.3"; exit 1; }
+          run=$(gh api "repos/$REPO/actions/runs/$RUN_ID")
+          [ "$(jq -r .conclusion <<<"$run")" = success ] || { echo "::error::that run did not succeed"; exit 1; }
+          [ "$(jq -r .path <<<"$run")" = .github/workflows/windows-release.yml ] || { echo "::error::that is not a Windows build run"; exit 1; }
+          [ "$(jq -r .head_repository.full_name <<<"$run")" = "$REPO" ] || { echo "::error::that run built code from another repository"; exit 1; }
+          echo "sha=$(jq -r .head_sha <<<"$run")" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.build.outputs.sha }}
+      - name: The version matches what was built
+        run: |
+          set -euo pipefail
+          conf=$(jq -r .version src-tauri/tauri.conf.json)
+          cargo=$(grep -m1 '^version' src-tauri/Cargo.toml | cut -d'"' -f2)
+          echo "tauri.conf.json: $conf, Cargo.toml: $cargo, requested: $VERSION"
+          [ "$conf" = "$VERSION" ] && [ "$cargo" = "$VERSION" ] || { echo "::error::the build at that commit is version $conf / $cargo, not $VERSION. Bump both files, build again, then draft the release"; exit 1; }
+          if gh release view "v$VERSION" >/dev/null 2>&1; then echo "::error::a release v$VERSION already exists"; exit 1; fi
+      - name: Download the installer and check its checksums
+        run: |
+          set -euo pipefail
+          gh run download "$RUN_ID" -n Aether-Hub-Windows-x64-unsigned -D dist
+          ls -l dist
+          (cd dist && tr -d '\r' < SHA256SUMS.txt | sha256sum -c -)
+          ls dist/*setup*.exe >/dev/null
+      - name: Write the release notes
+        run: |
+          {
+            echo "Aether Hub $VERSION"
+            echo
+            echo "**This installer is not code-signed yet**, so Windows SmartScreen may warn when you run it (choose More info, then Run anyway). Check the download against SHA256SUMS.txt if you want to be sure it is the file built from this repository."
+            echo
+            echo "Install: run the setup file. No Node.js, Rust or terminal is needed. INSTALLATION.md, attached below, has the details."
+            echo
+            echo "Built by GitHub Actions run $RUN_ID from commit ${{ steps.build.outputs.sha }}."
+          } > notes.md
+          cat notes.md
+      - name: Create the draft release
+        if: ${{ inputs.create_draft }}
+        run: |
+          set -euo pipefail
+          gh release create "v$VERSION" --draft --target "${{ steps.build.outputs.sha }}" --title "Aether Hub $VERSION" --notes-file notes.md dist/*setup*.exe dist/SHA256SUMS.txt dist/INSTALLATION.md
+          echo "Draft created. Open the Releases page and press Publish release when ready." | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Dry run summary
+        if: ${{ !inputs.create_draft }}
+        run: |
+          echo "Dry run, every check passed for version $VERSION from run $RUN_ID. Nothing was created." | tee -a "$GITHUB_STEP_SUMMARY"

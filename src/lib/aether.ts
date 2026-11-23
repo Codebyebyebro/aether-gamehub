@@ -21,6 +21,16 @@ export interface Settings {
   discordEnabled: boolean; discordAppId: string;
   /** Steam playtime import from a public profile. The API key is optional. */
   steamSyncEnabled: boolean; steamProfile: string; steamApiKey: string; steamSyncHours: number;
+  /** Closing the window keeps Aether Hub running in the system tray instead of quitting. */
+  keepInTray: boolean;
+  /** A global shortcut that brings the launcher back from anywhere (Ctrl+Alt+Space). */
+  shortcut: boolean;
+  /** Starts with Windows, quietly in the tray when the tray is on. */
+  startWithWindows: boolean;
+  /** Opens Big Box when a controller connects, unless a game is running. */
+  padWake: boolean;
+  /** Asks GitHub once per start whether a newer release exists. */
+  checkUpdates: boolean;
 }
 export interface Library { games: Game[]; settings: Settings }
 /** What the scan review shows about a candidate; never saved with the game. */
@@ -32,7 +42,7 @@ export interface ScanResult { games: Game[]; warnings: string[]; details: Record
 /** The `aether:scan-progress` event. `step` is 0 while store lists are read, then one per custom folder, and `steps` when done. */
 export interface ScanProgress { scanId: string; step: number; steps: number; checked: number; found: number; folder: string }
 export const desktop = isTauri();
-export const defaults: Settings = { theme: "cream", accent: "#5b4bd6", view: "poster", size: 170, gap: 22, radius: 14, titles: true, performance: false, sounds: true, wallpaper: "", blur: 0, dim: 30, afterLaunch: "minimize", folders: [], onboarded: false, backupEnabled: true, backupDir: "", backupKeep: 10, discordEnabled: false, discordAppId: "", steamSyncEnabled: false, steamProfile: "", steamApiKey: "", steamSyncHours: 6 };
+export const defaults: Settings = { theme: "cream", accent: "#5b4bd6", view: "poster", size: 170, gap: 22, radius: 14, titles: true, performance: false, sounds: true, wallpaper: "", blur: 0, dim: 30, afterLaunch: "minimize", folders: [], onboarded: false, backupEnabled: true, backupDir: "", backupKeep: 10, discordEnabled: false, discordAppId: "", steamSyncEnabled: false, steamProfile: "", steamApiKey: "", steamSyncHours: 6, keepInTray: false, shortcut: false, startWithWindows: false, padWake: false, checkUpdates: false };
 const showcase = [
   ["1245620", "ELDEN RING"], ["1091500", "Cyberpunk 2077"], ["1086940", "Baldur’s Gate 3"],
   ["1593500", "God of War"], ["1151640", "Horizon Zero Dawn"], ["1174180", "Red Dead Redemption 2"],
@@ -92,6 +102,14 @@ export interface BackupMade { info: BackupInfo; warnings: string[] }
 export interface BackupExported { path: string; warnings: string[] }
 export interface Restored { library: Library; playtime: PlaytimeStore; games: number; restoredCovers: number; missingCovers: number }
 export interface DiscordStatus { enabled: boolean; connected: boolean; playing: string; error: string }
+/** What the background behaviours are really doing right now, as reported by the program (never assumed from the switches). */
+export interface BackgroundStatus {
+  trayActive: boolean; trayError: string;
+  shortcutActive: boolean; shortcutLabel: string; shortcutError: string;
+  startupError: string;
+  padWatching: boolean; padError: string;
+}
+export interface UpdateInfo { current: string; latest: string | null; available: boolean; note: string }
 export interface SteamSyncSummary { owned: number; matched: number; raised: number; usedApi: boolean }
 export interface SessionEvent { id: string; title: string; startedAt: number }
 export interface PlaytimeEvent { id: string; seconds: number; lastPlayed: number }
@@ -106,6 +124,12 @@ export async function backupExport(): Promise<BackupExported | null> { if (!desk
 /** `path` restores one of the listed backups; without it the player picks any backup file. Null means they cancelled. */
 export async function backupRestore(path?: string): Promise<Restored | null> { if (!desktop) desktopOnly("Restoring a backup"); return invoke("backup_restore", { path: path ?? null }); }
 export async function openBackupFolder(dir: string): Promise<void> { if (!desktop) desktopOnly("Opening the backup folder"); return invoke("open_backup_folder", { dir }); }
+const idleBackground: BackgroundStatus = { trayActive: false, trayError: "", shortcutActive: false, shortcutLabel: "Ctrl+Alt+Space", shortcutError: "", startupError: "", padWatching: false, padError: "" };
+export async function backgroundStatus(): Promise<BackgroundStatus> { return desktop ? invoke("background_status") : idleBackground; }
+/** True once if the tray menu or a connecting controller asked for Big Box since the last look. The browser preview never has one. */
+export async function takeWakeRequest(): Promise<boolean> { return desktop ? invoke("take_wake_request") : false; }
+export async function checkForUpdate(): Promise<UpdateInfo> { if (!desktop) desktopOnly("The update check"); return invoke("check_update"); }
+export async function openReleasesPage(): Promise<void> { if (!desktop) desktopOnly("Opening the download page"); return invoke("open_releases_page"); }
 export async function discordStatus(): Promise<DiscordStatus> { return desktop ? invoke("discord_status") : { enabled: false, connected: false, playing: "", error: "" }; }
 export async function discordTest(appId: string): Promise<void> { if (!desktop) desktopOnly("The Discord test"); return invoke("discord_test", { appId }); }
 export async function steamSyncNow(profile: string, apiKey: string): Promise<SteamSyncSummary> { if (!desktop) desktopOnly("Steam sync"); return invoke("steam_sync_now", { profile, apiKey }); }

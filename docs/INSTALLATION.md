@@ -27,6 +27,21 @@ Data is stored under `%APPDATA%\com.aetherhub.launcher`: `library.json`, `librar
 
 Connect a PS5 DualSense by USB or Bluetooth (Xbox controllers work too). The D-pad or left stick moves, **Cross** launches the focused game or presses the focused control, **Circle** goes back or closes a dialog, **L1/R1** switch category tabs (or Settings tabs), and **Square** opens a game's details. Big Box has its own category pills for L1/R1. The controller is only read while Aether Hub is the focused window, so it never competes with a running game. A short, soft click plays each time the selection moves (and when the on-screen keyboard's highlighted key changes); switch it off under **Customize UI → Navigation sounds**.
 
+## Running in the background and couch mode
+
+Under **Settings → General → Running in the background**, each of these is off until you switch it on:
+
+- **Keep running in the system tray.** Closing the window hides Aether Hub next to the clock instead of quitting. Click the icon to bring it back; right-click it for **Open Aether Hub**, **Open Big Box** and **Quit Aether Hub**. Windows may put a new icon under the ^ arrow; drag it out to keep it in view. If you ever cannot find it, opening Aether Hub again from the Start menu shows the window. Aether Hub only hides itself while the icon exists: if the icon cannot be created, closing the window still quits and Settings says so.
+- **Global shortcut (Ctrl+Alt+Space).** Brings Aether Hub forward from anywhere. Only that one key combination is reserved and no other key is read. If another program already uses it, Settings tells you.
+- **Start with Windows.** Adds one entry for your account only (never for everyone on the PC) and removes it when you switch this off. With the tray on, Aether Hub starts quietly in the tray; otherwise its window opens as usual.
+- **Open Big Box when a controller connects.** Turn your controller on and Aether Hub comes forward in Big Box. It needs Aether Hub running (in the tray or minimized) and stays out of the way while a game launched from Aether Hub is running. Windows only tells Aether Hub that a controller appeared; no button is read while the window is hidden. Steam can hide a physical controller from Windows while Steam is running, in which case this will not notice it.
+
+Choosing **Close Launcher Completely** under "When a game starts" quits Aether Hub when a game launches, which also ends the tray icon, the shortcut and the controller wake-up. Choose Minimize or Do nothing to keep them.
+
+## Updates
+
+Aether Hub never updates itself. **Settings → General → Updates** has **Check now**, and an optional **Check for updates when Aether Hub starts** (off by default). A check is one request to GitHub's public releases page for this project; if a newer version exists you get a button that opens the download page, and you install it yourself like the first time. Installers are not code-signed yet, so Windows may warn when you run one.
+
 ## Playtime, Steam sync, and Discord
 
 Playtime is recorded for games launched from Aether Hub while the launcher stays open (Do Nothing or Minimize). Exported Windows shortcuts hand off without opening the interface, so they are not tracked.
@@ -51,7 +66,7 @@ Choose **Create shortcuts folder**, then select a destination. Aether creates re
 
 ## Privacy
 
-No telemetry, launcher authentication, cloud database, or automatic background scanning. Steam artwork retrieval uses Steam's CDN. Steam playtime sync, if you turn it on, asks Steam for your public profile (steamcommunity.com, or api.steampowered.com if you provide a key). Discord Rich Presence talks only to the Discord app on your PC. Both are off by default. SteamGridDB is optional, uses your key only for the current editor session, and requires confirmation of artwork matches. Keys are not saved. All library and appearance settings stay local.
+No telemetry, launcher authentication, cloud database, or automatic background scanning. The update check is the only thing that contacts GitHub, and only if you switch it on or press Check now. Steam artwork retrieval uses Steam's CDN. Steam playtime sync, if you turn it on, asks Steam for your public profile (steamcommunity.com, or api.steampowered.com if you provide a key). Discord Rich Presence talks only to the Discord app on your PC. Both are off by default. SteamGridDB is optional, uses your key only for the current editor session, and requires confirmation of artwork matches. Keys are not saved. All library and appearance settings stay local.
 
 ## Release status
 

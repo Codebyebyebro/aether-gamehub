@@ -11,6 +11,7 @@ An artwork-first Windows game library built with Tauri 2, Rust, React 18, TypeSc
 - Playtime tracking for games launched from Aether Hub, optional Steam playtime sync from a public profile, and optional Discord Rich Presence.
 - Automatic and manual backups of the library, playtime, and cover references to a folder you choose (for example inside OneDrive), with one-click restore.
 - "When a game starts" can do nothing, minimize the launcher, or close it completely.
+- Optional, all off by default: keep running in the system tray, a Ctrl+Alt+Space shortcut to bring the launcher back, start with Windows (quietly in the tray), and open Big Box when a controller connects. An optional "a newer version is available" check against this project's GitHub releases; nothing is downloaded or installed automatically.
 - Native URI/process launches, managed artwork copies and cached remote artwork.
 - Genuine Windows COM `.lnk` export and a pre-WebView headless shortcut entrypoint.
 - Local transactional JSON file replacement and backup; no hosted server or cloud database.
@@ -20,7 +21,7 @@ The browser preview is an isolated, labeled artwork showcase. Native operations 
 
 ## End-user installation
 
-See [Installation](docs/INSTALLATION.md). Players use a setup executable and normal Windows shortcuts; they do not install Node.js or open a terminal.
+See [Installation](docs/INSTALLATION.md). Maintainers: [Releasing](docs/RELEASING.md) and [Code signing](docs/CODE-SIGNING.md). Players use a setup executable and normal Windows shortcuts; they do not install Node.js or open a terminal.
 
 ## Development and release
 

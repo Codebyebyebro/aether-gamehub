@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/compone
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
-import { Game, Settings, Library as LibraryData, View, PlaytimeStore, PlaytimeEvent, SessionEvent, Restored, emptyPlaytime, defaults, desktop, loadLibrary, saveLibrary, launchGame, exportShortcuts, imageUrl, gameIdentity, loadPlaytime, startupNotice, listenDesktop } from "@/lib/aether";
+import { Game, Settings, Library as LibraryData, View, PlaytimeStore, PlaytimeEvent, SessionEvent, Restored, emptyPlaytime, defaults, desktop, loadLibrary, saveLibrary, launchGame, exportShortcuts, imageUrl, gameIdentity, loadPlaytime, startupNotice, listenDesktop, takeWakeRequest, checkForUpdate, openReleasesPage} from "@/lib/aether";
 import { useController } from "@/hooks/useController";
 import { moveFocus, activate, dismiss, switchTab, overlayOpen } from "@/lib/spatialNav";
 import { setCueEnabled, warmCue } from "@/lib/cue";
@@ -49,6 +49,21 @@ export default function Index() {
   const flush = useCallback(async () => { clearTimeout(settingsTimer.current); await persist(latest.current); }, [persist]);
   const applyRestore = useCallback((restored: Restored) => { clearTimeout(settingsTimer.current); latest.current = restored.library; setData(restored.library); setPlaytime(restored.playtime); setPlatform("All"); setSection("library"); setQuery(""); }, []);
   useEffect(() => { if (settings.view === "carousel") setDrawer(false); }, [settings.view]);
+  // The tray menu, or a controller connecting while the launcher was hidden, asks for Big Box. The request is kept by the
+  // program until collected, so one made while this page was still loading is not lost.
+  useEffect(() => {
+    if (!loaded || !desktop) return;
+    const open = () => { takeWakeRequest().then(wanted => { if (wanted) update({ view: "carousel" }); }).catch(() => {}); };
+    open();
+    const subscription = listenDesktop("aether:open-big-box", open);
+    return () => { subscription.then(off => off()).catch(() => {}); };
+  }, [loaded, update]);
+  // Opt-in, once per start, and silent when it fails: being offline is not worth a message at launch. The setting is read
+  // when the library has loaded, so switching it on later applies from the next start and never makes a request now.
+  useEffect(() => {
+    if (!loaded || !desktop || !latest.current.settings.checkUpdates) return;
+    checkForUpdate().then(found => { if (found.available) toast(`Aether Hub ${found.latest} is available`, { duration: 20000, action: { label: "Open download page", onClick: () => { openReleasesPage().catch(e => toast.error(String(e))); } } }); }).catch(() => {});
+  }, [loaded]);
   useEffect(() => { document.documentElement.dataset.theme = settings.theme; document.documentElement.style.setProperty("--aether-accent", settings.accent); document.documentElement.classList.toggle("performance", settings.performance); }, [settings.theme, settings.accent, settings.performance]);
   useEffect(() => { setCueEnabled(settings.sounds); warmCue(); }, [settings.sounds]);
   async function saveGame(game: Game) { const games = latest.current.games; const duplicate = games.find(g => g.id !== game.id && gameIdentity(g) === gameIdentity(game)); if (duplicate) throw new Error(`This launch target and arguments are already in your library as ${duplicate.title}.`); await persist({ ...latest.current, games: games.some(g => g.id === game.id) ? games.map(g => g.id === game.id ? game : g) : [...games, game] }); toast.success(editor === "new" ? "Game added to your library" : "Changes saved"); }

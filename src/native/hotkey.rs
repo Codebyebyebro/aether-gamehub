@@ -68,7 +68,12 @@ mod imp {
         }
         // These talk to the real Windows hotkey table, so one test runs them in order (tests run in parallel).
         #[test] fn the_shortcut_is_reserved_released_and_a_clash_is_reported() {
-            if !can_register_here() { eprintln!("SKIP: this session cannot register a global hotkey at all"); return; }
+            if !can_register_here() {
+                // A passing test that proved nothing would be worse than a failing one: on CI the session must be able to do this.
+                assert!(std::env::var_os("CI").is_none(), "this CI session cannot register a global hotkey, so this test would prove nothing");
+                eprintln!("SKIP: this session cannot register a global hotkey at all");
+                return;
+            }
             let pressed = std::sync::Arc::new(AtomicBool::new(false));
             let seen = pressed.clone();
             start(move || seen.store(true, Ordering::SeqCst)).expect("the shortcut registers when nobody holds it");
