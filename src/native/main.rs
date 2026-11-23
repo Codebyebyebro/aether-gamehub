@@ -13,6 +13,13 @@ mod session;
 mod discord;
 mod steam_sync;
 mod backup;
+mod behavior;
+mod version;
+mod updates;
+mod autostart;
+mod hotkey;
+mod padwatch;
+mod background;
 use models::{Library, ScanResult};
 use tauri::{Emitter, Manager};
 use std::{path::{Path, PathBuf}, sync::{atomic::{AtomicBool, Ordering}, Mutex}, time::Duration};
@@ -28,11 +35,14 @@ async fn load_library() -> Result<Library, String> {
     tauri::async_runtime::spawn_blocking(storage::load).await.map_err(|e| e.to_string())?
 }
 #[tauri::command]
-async fn save_library(library: Library) -> Result<(), String> {
+async fn save_library(app: tauri::AppHandle, library: Library) -> Result<(), String> {
     let (discord_on, discord_id) = (library.settings.discord_enabled, library.settings.discord_app_id.clone());
+    let settings = library.settings.clone();
     tauri::async_runtime::spawn_blocking(move || storage::save(&library)).await.map_err(|e| e.to_string())??;
     discord::configure(discord_on, &discord_id);
     backup::note_change();
+    // The tray, shortcut, start-with-Windows and controller wake-up follow the saved settings. Only a switch that moved is acted on.
+    tauri::async_runtime::spawn_blocking(move || background::apply(&app, &settings)).await.map_err(|e| e.to_string())?;
     Ok(())
 }
 #[tauri::command]
@@ -165,11 +175,30 @@ fn open_folder(path: &Path) -> Result<(), String> {
     #[cfg(not(windows))] let program = "xdg-open";
     std::process::Command::new(program).arg(path).spawn().map(|_| ()).map_err(|e| format!("Could not open the folder: {e}"))
 }
+/// Opens the releases page in the default browser. The address is fixed in `updates.rs`; the interface cannot supply one.
+fn open_releases() -> Result<(), String> {
+    #[cfg(windows)] let program = "explorer.exe";
+    #[cfg(not(windows))] let program = "xdg-open";
+    std::process::Command::new(program).arg(updates::page()).spawn().map(|_| ()).map_err(|e| format!("Could not open the browser: {e}"))
+}
 #[tauri::command]
 async fn open_backup_folder(dir: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || open_folder(Path::new(&backup::overview(&dir)?.dir))).await.map_err(|e| e.to_string())?
 }
 
+#[tauri::command]
+async fn background_status() -> background::Status { background::status() }
+/// True once if something (a controller connecting, the tray menu) asked for Big Box since the interface last looked.
+#[tauri::command]
+async fn take_wake_request() -> bool { background::take_wake_request() }
+#[tauri::command]
+async fn check_update() -> Result<updates::Update, String> {
+    tauri::async_runtime::spawn_blocking(updates::check).await.map_err(|e| e.to_string())?
+}
+#[tauri::command]
+async fn open_releases_page() -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(open_releases).await.map_err(|e| e.to_string())?
+}
 #[tauri::command]
 async fn discord_status() -> discord::Status { discord::status() }
 #[tauri::command]
@@ -202,16 +231,16 @@ fn main() {
         return;
     }
     let app = tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
-            if let Some(window) = app.get_webview_window("main") { let _ = window.unminimize(); let _ = window.show(); let _ = window.set_focus(); }
-        }))
+        .plugin(tauri_plugin_single_instance::init(|app, args, _| background::second_launch(app, &args)))
+        .on_window_event(background::on_window_event)
         .setup(|app| {
             if let Ok(library) = storage::load() { discord::configure(library.settings.discord_enabled, &library.settings.discord_app_id); }
             steam_sync::spawn_scheduler(app.handle().clone());
             backup::on_startup();
+            background::init(app.handle());
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![load_library, save_library, pick_file, import_artwork, resolve_artwork, scan_games, cancel_scan, launch_game, export_shortcuts, grid_artwork, startup_notice, load_playtime, backup_overview, backup_now, backup_export, backup_restore, open_backup_folder, discord_status, discord_test, steam_sync_now])
+        .invoke_handler(tauri::generate_handler![load_library, save_library, pick_file, import_artwork, resolve_artwork, scan_games, cancel_scan, launch_game, export_shortcuts, grid_artwork, startup_notice, load_playtime, backup_overview, backup_now, backup_export, backup_restore, open_backup_folder, discord_status, discord_test, steam_sync_now, background_status, take_wake_request, check_update, open_releases_page])
         .build(tauri::generate_context!())
         .expect("Aether Hub could not initialize");
     app.run(|handle, event| {

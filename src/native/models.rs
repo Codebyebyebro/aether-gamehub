@@ -46,6 +46,16 @@ pub struct Settings {
     pub discord_enabled: bool, pub discord_app_id: String,
     /// Periodic Steam playtime import from a public profile; the API key is optional.
     pub steam_sync_enabled: bool, pub steam_profile: String, pub steam_api_key: String, pub steam_sync_hours: u32,
+    /// Closing the window hides Aether Hub in the system tray instead of quitting. Off means closing quits, as before.
+    pub keep_in_tray: bool,
+    /// A global shortcut that brings the launcher back from anywhere (the keys are fixed, see `hotkey.rs`).
+    pub shortcut: bool,
+    /// Start with Windows. With `keep_in_tray` on it starts hidden in the tray; otherwise the window opens as usual.
+    pub start_with_windows: bool,
+    /// Open Big Box when a controller connects, unless a game is running. Needs Aether Hub to be running (tray or minimized).
+    pub pad_wake: bool,
+    /// Ask GitHub once per start whether a newer release exists. Off by default: Aether Hub makes no network request for this unless asked.
+    pub check_updates: bool,
 }
 impl Default for Settings {
     fn default() -> Self { Self { theme: "cream".into(), accent: "#5b4bd6".into(), view: "poster".into(),
@@ -53,7 +63,8 @@ impl Default for Settings {
         blur: 0, dim: 30, after_launch: "minimize".into(), folders: vec![], onboarded: false,
         backup_enabled: true, backup_dir: String::new(), backup_keep: 10,
         discord_enabled: false, discord_app_id: String::new(),
-        steam_sync_enabled: false, steam_profile: String::new(), steam_api_key: String::new(), steam_sync_hours: 6 } }
+        steam_sync_enabled: false, steam_profile: String::new(), steam_api_key: String::new(), steam_sync_hours: 6,
+        keep_in_tray: false, shortcut: false, start_with_windows: false, pad_wake: false, check_updates: false } }
 }
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Library { pub games: Vec<Game>, pub settings: Settings }
@@ -115,5 +126,16 @@ mod tests {
         let off: Settings = serde_json::from_str(r#"{"sounds":false}"#).unwrap();
         assert!(!off.sounds);
         assert!(!serde_json::from_str::<Settings>(&serde_json::to_string(&off).unwrap()).unwrap().sounds);
+    }
+    #[test] fn background_behaviour_is_off_until_the_player_turns_it_on() {
+        let old: Settings = serde_json::from_str(r#"{"theme":"navy"}"#).unwrap();
+        assert!(!old.keep_in_tray && !old.shortcut && !old.start_with_windows && !old.pad_wake && !old.check_updates,
+            "closing must still quit, nothing may register a key or start with Windows, and no update request may be made, until asked");
+    }
+    #[test] fn background_settings_use_their_camel_case_names() {
+        let json = serde_json::to_string(&Settings::default()).unwrap();
+        for name in ["keepInTray", "shortcut", "startWithWindows", "padWake", "checkUpdates"] { assert!(json.contains(&format!("\"{name}\":false")), "{name} in {json}"); }
+        let on: Settings = serde_json::from_str(r#"{"keepInTray":true,"padWake":true}"#).unwrap();
+        assert!(on.keep_in_tray && on.pad_wake && !on.shortcut);
     }
 }

@@ -25,6 +25,8 @@ pub struct PlaytimeEvent { pub id: String, pub seconds: u64, pub last_played: u6
 
 struct Live { id: String, title: String, started_at: u64, last_seen: u64 }
 static LIVE: Mutex<Vec<Live>> = Mutex::new(Vec::new());
+/// True while any game launched from Aether Hub is still running. A controller that connects then belongs to that game.
+pub fn any_running() -> bool { LIVE.lock().map(|live| !live.is_empty()).unwrap_or(false) }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Watch {
