@@ -6,6 +6,7 @@ mod scanner;
 mod scan_control;
 mod artwork;
 mod metadata;
+mod art_finder;
 mod launch;
 mod shortcuts;
 mod playtime;
@@ -29,6 +30,7 @@ use std::{path::{Path, PathBuf}, sync::{atomic::{AtomicBool, Ordering}, Mutex}, 
 static LAUNCHING: AtomicBool = AtomicBool::new(false);
 static ART_JOBS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(3);
 static SCAN_JOBS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
+static FIND_ART_JOBS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
 static SCANS: scan_control::Registry = scan_control::Registry::new();
 /// Something the player should be told about once the interface is up (for example a failed data migration).
 static STARTUP_NOTICE: Mutex<Option<String>> = Mutex::new(None);
@@ -137,6 +139,31 @@ async fn export_shortcuts() -> Result<Option<usize>, String> {
 async fn grid_artwork(title: String, key: String) -> Result<Vec<metadata::Match>, String> {
     tauri::async_runtime::spawn_blocking(move || metadata::search(title, key)).await.map_err(|e| e.to_string())?
 }
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ArtProgressEvent { done: usize, total: usize, title: String }
+/// "Find missing artwork": looks each game up by name (Steam's public store, then SteamGridDB if `key` is given) and returns
+/// the covers it is sure of. Nothing is saved here; the interface applies the answer to games that still have no cover.
+/// Reports `aether:artwork-progress` as it goes. `key` is used for this run only.
+#[tauri::command]
+async fn find_artwork(app: tauri::AppHandle, games: Vec<art_finder::Wanted>, key: String) -> Result<art_finder::Outcome, String> {
+    let key = key.trim().to_owned();
+    art_finder::validate(&games, &key)?;
+    let Ok(_permit) = FIND_ART_JOBS.try_acquire() else { return Err("Artwork is already being looked up. Wait for it to finish.".into()); };
+    art_finder::reset();
+    let result = tauri::async_runtime::spawn_blocking(move || -> Result<art_finder::Outcome, String> {
+        let mut network = art_finder::Network::new(key)?;
+        Ok(art_finder::run(&games, &mut network, &art_finder::is_cancelled, &mut |done, total, title| {
+            let _ = app.emit("aether:artwork-progress", ArtProgressEvent { done, total, title: title.to_owned() });
+        }))
+    }).await.map_err(|e| e.to_string());
+    let outcome = diag::logged("artwork", result?)?;
+    diag::event("artwork", &format!("found {} cover(s), {} left as they were{}", outcome.found.len(), outcome.unmatched.len(), if outcome.cancelled { " (stopped)" } else { "" }));
+    Ok(outcome)
+}
+/// Stops a running "Find missing artwork" after the game it is on; what was found so far is kept.
+#[tauri::command]
+async fn cancel_artwork() { art_finder::cancel(); }
 
 #[tauri::command]
 async fn backup_overview(dir: String) -> Result<backup::Overview, String> {
@@ -287,7 +314,7 @@ fn main() {
             background::init(app.handle());
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![load_library, save_library, pick_file, import_artwork, resolve_artwork, scan_games, cancel_scan, launch_game, export_shortcuts, grid_artwork, startup_notice, load_playtime, backup_overview, backup_now, backup_export, backup_restore, open_backup_folder, discord_status, discord_test, steam_sync_now, background_status, take_wake_request, check_update, open_releases_page, diagnostics, log_interface_error, missing_games])
+        .invoke_handler(tauri::generate_handler![load_library, save_library, pick_file, import_artwork, resolve_artwork, scan_games, cancel_scan, launch_game, export_shortcuts, grid_artwork, startup_notice, load_playtime, backup_overview, backup_now, backup_export, backup_restore, open_backup_folder, discord_status, discord_test, steam_sync_now, background_status, take_wake_request, check_update, open_releases_page, diagnostics, log_interface_error, missing_games, find_artwork, cancel_artwork])
         .build(tauri::generate_context!())
         .expect("Aether Hub could not initialize");
     app.run(|handle, event| {
