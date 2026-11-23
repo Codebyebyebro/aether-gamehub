@@ -130,6 +130,10 @@ export async function backgroundStatus(): Promise<BackgroundStatus> { return des
 export async function takeWakeRequest(): Promise<boolean> { return desktop ? invoke("take_wake_request") : false; }
 export async function checkForUpdate(): Promise<UpdateInfo> { if (!desktop) desktopOnly("The update check"); return invoke("check_update"); }
 export async function openReleasesPage(): Promise<void> { if (!desktop) desktopOnly("Opening the download page"); return invoke("open_releases_page"); }
+/** The text for "Copy diagnostics", built by the program: versions, what runs in the background, memory, and the latest log entries. */
+export async function diagnostics(): Promise<string> { if (!desktop) desktopOnly("Diagnostics"); return invoke("diagnostics"); }
+/** Fire and forget: tells the program an error happened in the interface so it reaches the local log. Does nothing in a browser preview. */
+export function logInterfaceError(message: string): void { if (desktop) void invoke("log_interface_error", { message }).catch(() => {}); }
 export async function discordStatus(): Promise<DiscordStatus> { return desktop ? invoke("discord_status") : { enabled: false, connected: false, playing: "", error: "" }; }
 export async function discordTest(appId: string): Promise<void> { if (!desktop) desktopOnly("The Discord test"); return invoke("discord_test", { appId }); }
 export async function steamSyncNow(profile: string, apiKey: string): Promise<SteamSyncSummary> { if (!desktop) desktopOnly("Steam sync"); return invoke("steam_sync_now", { profile, apiKey }); }

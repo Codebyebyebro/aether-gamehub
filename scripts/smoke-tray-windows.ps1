@@ -50,6 +50,7 @@ try {
 
   # 2. Quiet start with the tray on: alive, nothing on screen.
   $env:AETHER_DATA_DIR = Fresh $true
+  $quietData = $env:AETHER_DATA_DIR
   $quiet = Start-Process -FilePath $Exe -ArgumentList '--tray' -PassThru; $null = $quiet.Handle; $started.Add($quiet)
   Start-Sleep -Seconds $Seconds
   if ($quiet.HasExited) { Report "- FAIL: a quiet start exited early (exit code $($quiet.ExitCode))"; $failed = $true }
@@ -69,6 +70,13 @@ try {
     }
     if ($again.HasExited) { Report "- PASS: the second launch handed over and exited (exit code $($again.ExitCode))" }
     else { Report '- INFO: the second launch was still running after 6 s'; }
+
+    # 4. The local log: both starts must have written a line, the first marked as a quiet start.
+    $log = Join-Path $quietData 'com.aetherhub.launcher\aether-hub.log'
+    $lines = if (Test-Path -LiteralPath $log) { @(Get-Content -LiteralPath $log | Where-Object { $_ -match '\[start\]' }) } else { @() }
+    if ($lines.Count -ge 2 -and ($lines -match 'quiet start')) { Report "- PASS: the local log has $($lines.Count) start lines, one marked as a quiet start" }
+    elseif ($lines.Count -ge 1) { Report "- FAIL: the local log has $($lines.Count) start line(s); expected one per launch, one marked as a quiet start"; $failed = $true }
+    else { Report '- FAIL: no start line was written to the local log (aether-hub.log)'; $failed = $true }
   }
 } finally {
   Remove-Item Env:\AETHER_DATA_DIR -ErrorAction SilentlyContinue

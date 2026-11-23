@@ -2,7 +2,7 @@
 //! coming forward in Big Box when a controller connects. Every one of these is off until the player switches it on.
 //!
 //! One rule runs through all of it: the window is only ever hidden while the tray icon exists to bring it back.
-use crate::{autostart, behavior::{self, Wanted}, hotkey, models::Settings, padwatch, session, storage};
+use crate::{autostart, behavior::{self, Wanted}, diag, hotkey, models::Settings, padwatch, session, storage};
 use serde::Serialize;
 use std::sync::{atomic::{AtomicBool, Ordering}, Mutex, MutexGuard};
 use tauri::{
@@ -78,7 +78,7 @@ fn set_tray(app: &AppHandle, on: bool) {
     if on {
         match build_tray(app) {
             Ok(()) => { TRAY_UP.store(true, Ordering::SeqCst); errors().tray.clear(); }
-            Err(e) => { TRAY_UP.store(false, Ordering::SeqCst); errors().tray = format!("The tray icon could not be created, so closing the window will still quit. {e}"); }
+            Err(e) => { TRAY_UP.store(false, Ordering::SeqCst); diag::event("tray", &e.to_string()); errors().tray = format!("The tray icon could not be created, so closing the window will still quit. {e}"); }
         }
     } else {
         // Cleared first, so a close during the removal quits instead of hiding into nothing.
@@ -91,15 +91,15 @@ fn set_tray(app: &AppHandle, on: bool) {
 fn set_shortcut(app: &AppHandle, on: bool) {
     if on {
         let handle = app.clone();
-        match hotkey::start(move || show_main(&handle)) { Ok(()) => errors().shortcut.clear(), Err(e) => errors().shortcut = e }
+        match hotkey::start(move || show_main(&handle)) { Ok(()) => errors().shortcut.clear(), Err(e) => { diag::event("shortcut", &e); errors().shortcut = e } }
     } else { hotkey::stop(); errors().shortcut.clear(); }
 }
-fn set_startup(on: bool) { match autostart::apply(on) { Ok(()) => errors().startup.clear(), Err(e) => errors().startup = e } }
+fn set_startup(on: bool) { match autostart::apply(on) { Ok(()) => errors().startup.clear(), Err(e) => { diag::event("startup", &e); errors().startup = e } } }
 fn watch_pads(app: &AppHandle) {
     let handle = app.clone();
     // A game that is running keeps the launcher out of the way: the controller belongs to the game then.
     let started = padwatch::start(move || { if PAD_WAKE.load(Ordering::SeqCst) && !session::any_running() { request_big_box(&handle); } });
-    match started { Ok(()) => errors().pad.clear(), Err(e) => errors().pad = e }
+    match started { Ok(()) => errors().pad.clear(), Err(e) => { diag::event("pad", &e); errors().pad = e } }
 }
 
 /// Makes the background behaviour match the settings. Called on every settings save, so unchanged switches are left alone.

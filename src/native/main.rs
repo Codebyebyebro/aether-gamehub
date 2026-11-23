@@ -20,6 +20,8 @@ mod autostart;
 mod hotkey;
 mod padwatch;
 mod background;
+mod diag;
+mod machine;
 use models::{Library, ScanResult};
 use tauri::{Emitter, Manager};
 use std::{path::{Path, PathBuf}, sync::{atomic::{AtomicBool, Ordering}, Mutex}, time::Duration};
@@ -32,13 +34,13 @@ static STARTUP_NOTICE: Mutex<Option<String>> = Mutex::new(None);
 
 #[tauri::command]
 async fn load_library() -> Result<Library, String> {
-    tauri::async_runtime::spawn_blocking(storage::load).await.map_err(|e| e.to_string())?
+    diag::logged("library", tauri::async_runtime::spawn_blocking(storage::load).await.map_err(|e| e.to_string())?)
 }
 #[tauri::command]
 async fn save_library(app: tauri::AppHandle, library: Library) -> Result<(), String> {
     let (discord_on, discord_id) = (library.settings.discord_enabled, library.settings.discord_app_id.clone());
     let settings = library.settings.clone();
-    tauri::async_runtime::spawn_blocking(move || storage::save(&library)).await.map_err(|e| e.to_string())??;
+    diag::logged("save", tauri::async_runtime::spawn_blocking(move || storage::save(&library)).await.map_err(|e| e.to_string())?)?;
     discord::configure(discord_on, &discord_id);
     backup::note_change();
     // The tray, shortcut, start-with-Windows and controller wake-up follow the saved settings. Only a switch that moved is acted on.
@@ -95,7 +97,7 @@ async fn scan_games(app: tauri::AppHandle, folders: Vec<String>, scan_id: String
         scanner::scan(folders, &mut watch)
     }).await.map_err(|e| e.to_string());
     SCANS.finish(&scan_id);
-    result?
+    diag::logged("scan", result?)
 }
 /// Asks the scan with this id to stop. It returns a result marked `cancelled` shortly afterwards.
 #[tauri::command]
@@ -115,7 +117,7 @@ async fn launch_game(app: tauri::AppHandle, id: String) -> Result<(), String> {
         Ok::<_, String>((library.settings, game, handoff))
     }).await.map_err(|e| e.to_string()).and_then(|r| r);
     LAUNCHING.store(false, Ordering::SeqCst);
-    let (settings, game, handoff) = result?;
+    let (settings, game, handoff) = diag::logged("launch", result)?;
     match settings.after_launch.as_str() {
         // Nothing of the launcher stays running, so there is nothing left to track or to show on Discord.
         "close" => app.exit(0),
@@ -141,7 +143,7 @@ async fn backup_overview(dir: String) -> Result<backup::Overview, String> {
 }
 #[tauri::command]
 async fn backup_now(include_covers: bool, dir: String, keep: u32) -> Result<backup::Made, String> {
-    tauri::async_runtime::spawn_blocking(move || backup::backup_with(&dir, keep, include_covers)).await.map_err(|e| e.to_string())?
+    diag::logged("backup", tauri::async_runtime::spawn_blocking(move || backup::backup_with(&dir, keep, include_covers)).await.map_err(|e| e.to_string())?)
 }
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -158,7 +160,7 @@ async fn backup_export() -> Result<Option<Exported>, String> {
 /// Restore from a backup listed in the backup folder (`path`), or let the player pick any backup file (`None`).
 #[tauri::command]
 async fn backup_restore(path: Option<String>) -> Result<Option<backup::Restored>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
+    diag::logged("restore", tauri::async_runtime::spawn_blocking(move || {
         let chosen = match path {
             Some(listed) => {
                 let listed = PathBuf::from(listed);
@@ -168,7 +170,7 @@ async fn backup_restore(path: Option<String>) -> Result<Option<backup::Restored>
             None => match rfd::FileDialog::new().set_title("Restore an Aether Hub backup").add_filter("Aether Hub backup", &["json"]).pick_file() { Some(file) => file, None => return Ok(None) },
         };
         backup::restore(&chosen).map(Some)
-    }).await.map_err(|e| e.to_string())?
+    }).await.map_err(|e| e.to_string())?)
 }
 fn open_folder(path: &Path) -> Result<(), String> {
     #[cfg(windows)] let program = "explorer.exe";
@@ -188,6 +190,14 @@ async fn open_backup_folder(dir: String) -> Result<(), String> {
 
 #[tauri::command]
 async fn background_status() -> background::Status { background::status() }
+/// The text the player copies from Settings when something does not work. It is built here, never by the interface.
+#[tauri::command]
+async fn diagnostics() -> String {
+    tauri::async_runtime::spawn_blocking(build_diagnostics).await.unwrap_or_else(|e| format!("The diagnostics could not be put together: {e}"))
+}
+/// An error that happened in the interface (a crash in a page, a promise nobody caught), for the local log.
+#[tauri::command]
+async fn log_interface_error(message: String) { diag::event("interface", &message); }
 /// True once if something (a controller connecting, the tray menu) asked for Big Box since the interface last looked.
 #[tauri::command]
 async fn take_wake_request() -> bool { background::take_wake_request() }
@@ -212,13 +222,40 @@ async fn steam_sync_now(app: tauri::AppHandle, profile: String, api_key: String)
     summary
 }
 
+fn build_diagnostics() -> String {
+    let home = dirs::home_dir().map(|h| h.display().to_string());
+    let (library, settings) = match storage::load() {
+        Ok(l) => (Ok((l.games.len(), diag::settings_lines(&l.settings))), l.settings),
+        Err(e) => (Err(e), models::Settings::default()),
+    };
+    let status = background::status();
+    let facts = diag::Facts {
+        version: env!("CARGO_PKG_VERSION").into(),
+        webview: tauri::webview_version().unwrap_or_else(|_| "unknown".into()),
+        windows: machine::windows(),
+        now: util::now_secs(),
+        data_dir: storage::root().map(|p| p.display().to_string()).unwrap_or_else(|e| format!("unavailable ({e})")),
+        background: vec![
+            ("Tray".into(), diag::feature(settings.keep_in_tray, status.tray_active, &status.tray_error)),
+            (format!("Global shortcut ({})", status.shortcut_label), diag::feature(settings.shortcut, status.shortcut_active, &status.shortcut_error)),
+            ("Start with Windows".into(), diag::feature(settings.start_with_windows, status.startup_error.is_empty(), &status.startup_error)),
+            ("Controller wake-up".into(), diag::feature(settings.pad_wake, status.pad_watching, &status.pad_error)),
+        ],
+        library, memory: machine::footprint(), log: diag::recent(),
+    };
+    diag::report(&facts, home.as_deref())
+}
+
 fn main() {
+    diag::install_panic_hook();
+    if let Ok(root) = storage::root() { diag::init(root, dirs::home_dir().map(|h| h.display().to_string())); }
     // First start after the app identifier changed: carry the previous library over before anything reads it.
     match storage::migrate_legacy() {
         Ok(_) => {}
-        Err(e) => { if let Ok(mut notice) = STARTUP_NOTICE.lock() { *notice = Some(format!("Your previous library could not be carried over automatically: {e}. It has not been changed or deleted.")); } }
+        Err(e) => { diag::event("migrate", &e); if let Ok(mut notice) = STARTUP_NOTICE.lock() { *notice = Some(format!("Your previous library could not be carried over automatically: {e}. It has not been changed or deleted.")); } }
     }
     let args: Vec<String> = std::env::args().skip(1).collect();
+    diag::event("start", &format!("Aether Hub {} started{}", env!("CARGO_PKG_VERSION"), if args.iter().any(|a| a == "--tray") { " (quiet start)" } else if args.first().is_some_and(|a| a == "--launch") { " (from an exported shortcut)" } else { "" }));
     if args.first().is_some_and(|s| s == "--launch") {
         let result = (|| -> Result<(), String> {
             if args.len() != 2 { return Err("Shortcut contains invalid launch arguments".into()); }
@@ -227,7 +264,7 @@ fn main() {
             let game = library.games.iter().find(|g| g.id == args[1]).ok_or("This game was removed from Aether Hub. Create a new shortcut after adding it again.")?;
             launch::handoff(game).map(|_| ())
         })();
-        if let Err(error) = result { rfd::MessageDialog::new().set_title("Aether Hub — Could not launch").set_description(&error).set_level(rfd::MessageLevel::Error).show(); std::process::exit(1); }
+        if let Err(error) = result { diag::event("shortcut", &error); rfd::MessageDialog::new().set_title("Aether Hub — Could not launch").set_description(&error).set_level(rfd::MessageLevel::Error).show(); std::process::exit(1); }
         return;
     }
     let app = tauri::Builder::default()
@@ -240,7 +277,7 @@ fn main() {
             background::init(app.handle());
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![load_library, save_library, pick_file, import_artwork, resolve_artwork, scan_games, cancel_scan, launch_game, export_shortcuts, grid_artwork, startup_notice, load_playtime, backup_overview, backup_now, backup_export, backup_restore, open_backup_folder, discord_status, discord_test, steam_sync_now, background_status, take_wake_request, check_update, open_releases_page])
+        .invoke_handler(tauri::generate_handler![load_library, save_library, pick_file, import_artwork, resolve_artwork, scan_games, cancel_scan, launch_game, export_shortcuts, grid_artwork, startup_notice, load_playtime, backup_overview, backup_now, backup_export, backup_restore, open_backup_folder, discord_status, discord_test, steam_sync_now, background_status, take_wake_request, check_update, open_releases_page, diagnostics, log_interface_error])
         .build(tauri::generate_context!())
         .expect("Aether Hub could not initialize");
     app.run(|handle, event| {

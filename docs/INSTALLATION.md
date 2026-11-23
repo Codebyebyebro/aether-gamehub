@@ -42,6 +42,10 @@ Choosing **Close Launcher Completely** under "When a game starts" quits Aether H
 
 Aether Hub never updates itself. **Settings → General → Updates** has **Check now**, and an optional **Check for updates when Aether Hub starts** (off by default). A check is one request to GitHub's public releases page for this project; if a newer version exists you get a button that opens the download page, and you install it yourself like the first time. Installers are not code-signed yet, so Windows may warn when you run one.
 
+## If something does not work
+
+**Settings → General → If something does not work → Copy diagnostics** puts a short report on the clipboard to paste where you ask for help. It lists the Aether Hub and Windows versions, which background features are on and whether they are working, how much memory Aether Hub and its web view use, and the last entries of a small log. The log is two files of at most 256 KB each, `aether-hub.log` and `aether-hub.old.log`, in Aether Hub's data folder (`%APPDATA%\com.aetherhub.launcher`). It records only that something went wrong: a crash, a game that would not launch, a scan or backup that failed, a background feature that could not start, an error in the interface. It never holds keys, ids or your game list, your Windows profile folder is shortened to `~`, and nothing is sent anywhere. An error line can still name a game's folder or file, so read the report before you share it. Deleting the two files is safe.
+
 ## Playtime, Steam sync, and Discord
 
 Playtime is recorded for games launched from Aether Hub while the launcher stays open (Do Nothing or Minimize). Exported Windows shortcuts hand off without opening the interface, so they are not tracked.
@@ -66,7 +70,7 @@ Choose **Create shortcuts folder**, then select a destination. Aether creates re
 
 ## Privacy
 
-No telemetry, launcher authentication, cloud database, or automatic background scanning. The update check is the only thing that contacts GitHub, and only if you switch it on or press Check now. Steam artwork retrieval uses Steam's CDN. Steam playtime sync, if you turn it on, asks Steam for your public profile (steamcommunity.com, or api.steampowered.com if you provide a key). Discord Rich Presence talks only to the Discord app on your PC. Both are off by default. SteamGridDB is optional, uses your key only for the current editor session, and requires confirmation of artwork matches. Keys are not saved. All library and appearance settings stay local.
+No telemetry (the log described under *If something does not work* stays on this PC), launcher authentication, cloud database, or automatic background scanning. The update check is the only thing that contacts GitHub, and only if you switch it on or press Check now. Steam artwork retrieval uses Steam's CDN. Steam playtime sync, if you turn it on, asks Steam for your public profile (steamcommunity.com, or api.steampowered.com if you provide a key). Discord Rich Presence talks only to the Discord app on your PC. Both are off by default. SteamGridDB is optional, uses your key only for the current editor session, and requires confirmation of artwork matches. Keys are not saved. All library and appearance settings stay local.
 
 ## Release status
 
