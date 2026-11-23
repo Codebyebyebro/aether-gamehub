@@ -2,6 +2,10 @@
 
 Each release has a section here named after its version. The Windows build copies that section into the release notes, and a test fails if the current version has none.
 
+## Not released yet
+
+- **Find missing artwork.** Games without a cover picture, such as Epic games, Riot games and games found in your own folders, can now get their cover and banner automatically. Aether Hub looks each one up by name in Steam's public store, with no account or key needed, and only the game names are sent. A picture is added only when the name matches exactly and just one game fits, so you never get the wrong cover. Anything uncertain is left as it was and listed with the reason. Games not sold on Steam, such as VALORANT, can be looked up on SteamGridDB too if you type your own key, which is used for that search only and not saved. Use **Find missing artwork** above your library. It is also offered after a scan adds games without pictures.
+
 ## 0.2.0
 
 - **Missing games.** A game whose file was moved, renamed or uninstalled now shows a **Missing** tag, and a **Missing files** list appears in the sidebar. A game on a drive that is not connected, such as an unplugged USB disk, shows **Drive not connected** instead and is not treated as broken. Pressing Play on a flagged game looks again first, then explains what happened and opens the editor so you can choose where the game is now.

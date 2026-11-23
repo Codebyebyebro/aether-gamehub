@@ -2,6 +2,7 @@ import { convertFileSrc, invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { launchIdentity } from "@/lib/paths";
 import type { Absent } from "@/lib/absent";
+import type { ArtOutcome } from "@/lib/artwork";
 
 export type Platform = "Steam" | "Epic" | "Riot" | "Custom";
 export type View = "poster" | "banner" | "list" | "carousel";
@@ -91,6 +92,15 @@ export async function gridArtwork(title: string, key: string): Promise<{ id: num
   if (!desktop) throw new Error("SteamGridDB lookup is available in the desktop app; your key is not sent from this preview.");
   return invoke("grid_artwork", { title, key });
 }
+
+/** "Find missing artwork": looks the games up by name and returns the covers it is sure of (see artwork.ts). Nothing is saved
+ *  by the program; apply the answer with `applyArtwork`. `key` is an optional SteamGridDB key, used for this run only. */
+export async function findArtwork(games: { id: string; title: string }[], key: string): Promise<ArtOutcome> {
+  if (!desktop) throw new Error("Finding artwork needs the Windows desktop app. This browser preview does not look anything up.");
+  return invoke("find_artwork", { games, key });
+}
+/** Stops a running lookup after the game it is on. */
+export async function cancelArtwork(): Promise<void> { if (desktop) return invoke("cancel_artwork"); }
 
 /* ---------- Playtime, backups, Discord and Steam sync (desktop app only) ---------- */
 export interface PlaytimeEntry { seconds: number; lastPlayed: number }
