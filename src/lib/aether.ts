@@ -11,6 +11,8 @@ export interface Game {
 export interface Settings {
   theme: "cream" | "navy" | "cyan"; accent: string; view: View; size: number;
   gap: number; radius: number; titles: boolean; performance: boolean;
+  /** A soft click when the controller moves the selection. */
+  sounds: boolean;
   wallpaper: string; blur: number; dim: number; afterLaunch: "keep" | "minimize" | "close";
   folders: string[]; onboarded: boolean;
   /** Automatic backups of the library, playtime and cover references. An empty folder means the app's own. */
@@ -30,7 +32,7 @@ export interface ScanResult { games: Game[]; warnings: string[]; details: Record
 /** The `aether:scan-progress` event. `step` is 0 while store lists are read, then one per custom folder, and `steps` when done. */
 export interface ScanProgress { scanId: string; step: number; steps: number; checked: number; found: number; folder: string }
 export const desktop = isTauri();
-export const defaults: Settings = { theme: "cream", accent: "#5b4bd6", view: "poster", size: 170, gap: 22, radius: 14, titles: true, performance: false, wallpaper: "", blur: 0, dim: 30, afterLaunch: "minimize", folders: [], onboarded: false, backupEnabled: true, backupDir: "", backupKeep: 10, discordEnabled: false, discordAppId: "", steamSyncEnabled: false, steamProfile: "", steamApiKey: "", steamSyncHours: 6 };
+export const defaults: Settings = { theme: "cream", accent: "#5b4bd6", view: "poster", size: 170, gap: 22, radius: 14, titles: true, performance: false, sounds: true, wallpaper: "", blur: 0, dim: 30, afterLaunch: "minimize", folders: [], onboarded: false, backupEnabled: true, backupDir: "", backupKeep: 10, discordEnabled: false, discordAppId: "", steamSyncEnabled: false, steamProfile: "", steamApiKey: "", steamSyncHours: 6 };
 const showcase = [
   ["1245620", "ELDEN RING"], ["1091500", "Cyberpunk 2077"], ["1086940", "Baldur’s Gate 3"],
   ["1593500", "God of War"], ["1151640", "Horizon Zero Dawn"], ["1174180", "Red Dead Redemption 2"],

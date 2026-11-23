@@ -37,7 +37,7 @@ impl Game {
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
     pub theme: String, pub accent: String, pub view: String, pub size: u32,
-    pub gap: u32, pub radius: u32, pub titles: bool, pub performance: bool,
+    pub gap: u32, pub radius: u32, pub titles: bool, pub performance: bool, pub sounds: bool,
     pub wallpaper: String, pub blur: u32, pub dim: u32, pub after_launch: String,
     pub folders: Vec<String>, pub onboarded: bool,
     /// Automatic library/playtime backups. An empty `backup_dir` means the app's own `backups` folder.
@@ -49,7 +49,7 @@ pub struct Settings {
 }
 impl Default for Settings {
     fn default() -> Self { Self { theme: "cream".into(), accent: "#5b4bd6".into(), view: "poster".into(),
-        size: 170, gap: 22, radius: 14, titles: true, performance: false, wallpaper: String::new(),
+        size: 170, gap: 22, radius: 14, titles: true, performance: false, sounds: true, wallpaper: String::new(),
         blur: 0, dim: 30, after_launch: "minimize".into(), folders: vec![], onboarded: false,
         backup_enabled: true, backup_dir: String::new(), backup_keep: 10,
         discord_enabled: false, discord_app_id: String::new(),
@@ -99,4 +99,21 @@ pub struct ScanResult {
     pub stats: ScanStats,
     /// The player stopped the scan; everything else is empty.
     pub cancelled: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Settings;
+
+    #[test] fn settings_saved_before_navigation_sounds_existed_load_with_the_sound_on() {
+        let old: Settings = serde_json::from_str(r#"{"theme":"navy","performance":true}"#).unwrap();
+        assert!(old.sounds, "a missing field takes the default, which is on");
+        assert!(old.performance && old.theme == "navy", "the fields that are present are kept");
+    }
+    #[test] fn the_navigation_sounds_setting_round_trips_under_its_camel_case_name() {
+        assert!(serde_json::to_string(&Settings::default()).unwrap().contains(r#""sounds":true"#));
+        let off: Settings = serde_json::from_str(r#"{"sounds":false}"#).unwrap();
+        assert!(!off.sounds);
+        assert!(!serde_json::from_str::<Settings>(&serde_json::to_string(&off).unwrap()).unwrap().sounds);
+    }
 }

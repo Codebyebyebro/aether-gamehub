@@ -25,7 +25,7 @@ Data is stored under `%APPDATA%\com.aetherhub.launcher`: `library.json`, `librar
 
 ## Controller
 
-Connect a PS5 DualSense by USB or Bluetooth (Xbox controllers work too). The D-pad or left stick moves, **Cross** launches the focused game or presses the focused control, **Circle** goes back or closes a dialog, **L1/R1** switch category tabs (or Settings tabs), and **Square** opens a game's details. Big Box has its own category pills for L1/R1. The controller is only read while Aether Hub is the focused window, so it never competes with a running game.
+Connect a PS5 DualSense by USB or Bluetooth (Xbox controllers work too). The D-pad or left stick moves, **Cross** launches the focused game or presses the focused control, **Circle** goes back or closes a dialog, **L1/R1** switch category tabs (or Settings tabs), and **Square** opens a game's details. Big Box has its own category pills for L1/R1. The controller is only read while Aether Hub is the focused window, so it never competes with a running game. A short, soft click plays each time the selection moves (and when the on-screen keyboard's highlighted key changes); switch it off under **Customize UI → Navigation sounds**.
 
 ## Playtime, Steam sync, and Discord
 

@@ -87,6 +87,10 @@ export default function Customize({ open, onOpenChange, settings, update }: { op
           <div className="flex items-center justify-between text-sm font-semibold"><span>Performance mode</span><Switch checked={settings.performance} onCheckedChange={performance => update({ performance })} /></div>
           <p className="mt-2 text-xs leading-relaxed text-muted-foreground">Less motion. No blur or wallpaper. Smaller artwork requests. More room for your games.</p>
         </div>
+        <div className="rounded-xl bg-secondary p-4">
+          <div className="flex items-center justify-between text-sm font-semibold"><span>Navigation sounds</span><Switch checked={settings.sounds} onCheckedChange={sounds => update({ sounds })} aria-label="Navigation sounds" /></div>
+          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">A soft click when the controller moves the selection.</p>
+        </div>
         <Button variant="ghost" className="w-full rounded-xl text-xs text-muted-foreground" onClick={() => update({ ...defaults, onboarded: settings.onboarded, folders: settings.folders, afterLaunch: settings.afterLaunch })}><RotateCcw size={14} className="mr-2" />Reset appearance</Button>
       </div>
     </SheetContent>

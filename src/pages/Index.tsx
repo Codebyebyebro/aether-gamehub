@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { Game, Settings, Library as LibraryData, View, PlaytimeStore, PlaytimeEvent, SessionEvent, Restored, emptyPlaytime, defaults, desktop, loadLibrary, saveLibrary, launchGame, exportShortcuts, imageUrl, gameIdentity, loadPlaytime, startupNotice, listenDesktop } from "@/lib/aether";
 import { useController } from "@/hooks/useController";
 import { moveFocus, activate, dismiss, switchTab, overlayOpen } from "@/lib/spatialNav";
+import { setCueEnabled, warmCue } from "@/lib/cue";
 import PadHints from "@/components/aether/PadHints";
 import Customize from "@/components/aether/Customize";
 import GameEditor from "@/components/aether/GameEditor";
@@ -49,6 +50,7 @@ export default function Index() {
   const applyRestore = useCallback((restored: Restored) => { clearTimeout(settingsTimer.current); latest.current = restored.library; setData(restored.library); setPlaytime(restored.playtime); setPlatform("All"); setSection("library"); setQuery(""); }, []);
   useEffect(() => { if (settings.view === "carousel") setDrawer(false); }, [settings.view]);
   useEffect(() => { document.documentElement.dataset.theme = settings.theme; document.documentElement.style.setProperty("--aether-accent", settings.accent); document.documentElement.classList.toggle("performance", settings.performance); }, [settings.theme, settings.accent, settings.performance]);
+  useEffect(() => { setCueEnabled(settings.sounds); warmCue(); }, [settings.sounds]);
   async function saveGame(game: Game) { const games = latest.current.games; const duplicate = games.find(g => g.id !== game.id && gameIdentity(g) === gameIdentity(game)); if (duplicate) throw new Error(`This launch target and arguments are already in your library as ${duplicate.title}.`); await persist({ ...latest.current, games: games.some(g => g.id === game.id) ? games.map(g => g.id === game.id ? game : g) : [...games, game] }); toast.success(editor === "new" ? "Game added to your library" : "Changes saved"); }
   async function favorite(game: Game) { try { await persist({ ...latest.current, games: latest.current.games.map(g => g.id === game.id ? { ...g, favorite: !g.favorite } : g) }); if (detail?.id === game.id) setDetail({ ...game, favorite: !game.favorite }); } catch(e) { toast.error(String(e)); } }
   async function launch(game: Game) { if (launching) return; setLaunching(game.id); try { clearTimeout(settingsTimer.current); await persist(latest.current); await launchGame(game.id); toast.success(`Launch handed off to ${game.title}`); } catch(e) { toast.error(String(e)); } finally { setLaunching(null); } }

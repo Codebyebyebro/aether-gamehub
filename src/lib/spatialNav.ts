@@ -2,6 +2,8 @@
  * Moves keyboard focus around the page the way a console menu does, so a controller can reach every button,
  * card and setting without each component needing to know about gamepads. The geometry is pure and unit-tested.
  */
+import { playSelectCue } from "./cue.ts";
+
 export type Direction = "up" | "down" | "left" | "right";
 export interface Box { left: number; top: number; right: number; bottom: number }
 
@@ -48,6 +50,7 @@ export const focusables = (layer: HTMLElement) => Array.from(layer.querySelector
 function focusItem(el: HTMLElement) {
   el.focus({ preventScroll: true });
   el.scrollIntoView({ block: "nearest", inline: "nearest" });
+  playSelectCue();
 }
 function focusEntry(items: HTMLElement[]) {
   const onScreen = (el: HTMLElement) => { const r = el.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth; };

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useController, type PadAction, type PadRules } from "@/hooks/useController";
 import { KEYBOARD_EVENT } from "@/lib/spatialNav";
+import { playSelectCue } from "@/lib/cue";
 import { BACKSPACE, DONE, LAYOUT, LEFT, RIGHT, SHIFT, SPACE, START, applyKey, keyLabel, moveKey, previewText, type Edit, type KeyDef, type Page, type Pos, type Shift } from "@/lib/keyboard";
 import PadHints from "@/components/aether/PadHints";
 
@@ -63,7 +64,7 @@ export default function OnScreenKeyboard() {
     setEdit({ value, cursor }); setShift(next.shift); setPage(next.page);
     if (next.done) close();
   }
-  const move = (dir: "up" | "down" | "left" | "right") => () => setPos(p => moveKey(rows, p, dir));
+  const move = (dir: "up" | "down" | "left" | "right") => () => { const next = moveKey(rows, pos, dir); if (next.row !== pos.row || next.col !== pos.col) { playSelectCue(); setPos(next); } };
   useController({
     up: move("up"), down: move("down"), left: move("left"), right: move("right"),
     confirm: () => press(rows[pos.row][pos.col]), back: close,
