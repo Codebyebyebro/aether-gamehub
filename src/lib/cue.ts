@@ -56,14 +56,21 @@ export function playSelectCue(now: number = performance.now()) {
 export const BOOT_NOTES: readonly { hz: number; at: number; length: number }[] = [
   { hz: 523.25, at: 0, length: 0.9 }, { hz: 783.99, at: 0.16, length: 0.9 }, { hz: 1046.5, at: 0.32, length: 1.1 },
 ];
+/** Launching a game: a quick bright rise, under a second. */
+export const LAUNCH_NOTES: readonly { hz: number; at: number; length: number }[] = [
+  { hz: 659.25, at: 0, length: 0.35 }, { hz: 987.77, at: 0.07, length: 0.45 }, { hz: 1318.51, at: 0.14, length: 0.6 },
+];
 /** Plays the start-up chime, synthesised (no sound file). Silent when navigation sounds are switched off. */
-export function playBootChime() {
+export function playBootChime() { playNotes(BOOT_NOTES); }
+/** Plays the launch sound when a game is started with the controller. Silent when navigation sounds are switched off. */
+export function playLaunchCue() { playNotes(LAUNCH_NOTES); }
+function playNotes(notes: readonly { hz: number; at: number; length: number }[]) {
   if (!enabled) return;
   const e = start(); if (!e) return;
   // An audio device that cannot make tones just stays silent; a chime is never worth an error.
   const play = () => { try {
     const t0 = e.context.currentTime + 0.05;
-    for (const note of BOOT_NOTES) {
+    for (const note of notes) {
       const osc = e.context.createOscillator(); const env = e.context.createGain();
       osc.type = "sine"; osc.frequency.value = note.hz;
       env.gain.setValueAtTime(0.0001, t0 + note.at);

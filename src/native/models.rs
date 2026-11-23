@@ -61,6 +61,11 @@ pub struct Settings {
     /// Console mode: with a controller connected, Aether Hub starts in Big Box and comes back to Big Box when a game
     /// ends. Nothing changes when no controller is connected. On by default.
     pub console_mode: bool,
+    /// A short rumble on the controller when a game is launched with it. On by default.
+    pub rumble: bool,
+    /// The PS / Xbox button brings Aether Hub forward (a quick menu while a game runs). It listens to the controller in
+    /// the background, so like the other background behaviours it is off until the player switches it on.
+    pub home_button: bool,
 }
 impl Default for Settings {
     fn default() -> Self { Self { theme: "cream".into(), accent: "#5b4bd6".into(), view: "poster".into(),
@@ -69,7 +74,7 @@ impl Default for Settings {
         backup_enabled: true, backup_dir: String::new(), backup_keep: 10,
         discord_enabled: false, discord_app_id: String::new(),
         steam_sync_enabled: false, steam_profile: String::new(), steam_api_key: String::new(), steam_sync_hours: 6,
-        keep_in_tray: false, shortcut: false, start_with_windows: false, pad_wake: false, check_updates: false, living_colors: true, console_mode: true } }
+        keep_in_tray: false, shortcut: false, start_with_windows: false, pad_wake: false, check_updates: false, living_colors: true, console_mode: true, rumble: true, home_button: false } }
 }
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Library { pub games: Vec<Game>, pub settings: Settings }
@@ -147,6 +152,13 @@ mod tests {
         assert!(serde_json::from_str::<Settings>(r#"{"theme":"navy"}"#).unwrap().console_mode);
         assert!(serde_json::to_string(&Settings::default()).unwrap().contains(r#""consoleMode":true"#));
         assert!(!serde_json::from_str::<Settings>(r#"{"consoleMode":false}"#).unwrap().console_mode);
+    }
+    #[test] fn rumble_is_on_and_the_home_button_is_off_until_asked() {
+        let old: Settings = serde_json::from_str(r#"{"theme":"navy"}"#).unwrap();
+        assert!(old.rumble && !old.home_button, "the background listener never starts on its own");
+        let json = serde_json::to_string(&Settings::default()).unwrap();
+        assert!(json.contains(r#""rumble":true"#) && json.contains(r#""homeButton":false"#));
+        assert!(serde_json::from_str::<Settings>(r#"{"homeButton":true}"#).unwrap().home_button);
     }
     #[test] fn background_settings_use_their_camel_case_names() {
         let json = serde_json::to_string(&Settings::default()).unwrap();

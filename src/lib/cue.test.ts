@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { bytesFromBase64, createCueGate, CUE_GAIN, CUE_MIN_GAP_MS, playSelectCue, setCueEnabled, warmCue, BOOT_NOTES, playBootChime } from "./cue.ts";
+import { bytesFromBase64, createCueGate, CUE_GAIN, CUE_MIN_GAP_MS, playSelectCue, setCueEnabled, warmCue, BOOT_NOTES, playBootChime, LAUNCH_NOTES, playLaunchCue } from "./cue.ts";
 import { SELECT_SOUND_BASE64 } from "./selectSound.ts";
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
@@ -97,9 +97,15 @@ test("the start-up chime plays its three notes, and is silent when sounds are of
   fresh(); g.AudioContext = ToneContext; setCueEnabled(false); setCueEnabled(true);
   playBootChime(); await tick();
   assert.equal(started, 3); assert.equal(stopped, 3);
-  setCueEnabled(false); playBootChime(); await tick();
-  assert.equal(started, 3, "switched off: nothing more plays");
+  playLaunchCue(); await tick();
+  assert.equal(started, 6, "the launch sound plays its own three notes");
+  setCueEnabled(false); playBootChime(); playLaunchCue(); await tick();
+  assert.equal(started, 6, "switched off: nothing more plays");
 });
 test("the start-up chime never throws, even on an audio device that cannot make tones", async () => {
   fresh(); assert.doesNotThrow(() => playBootChime()); await tick();
+});
+test("the launch sound is quick: rising and over in under a second", () => {
+  for (let i = 1; i < LAUNCH_NOTES.length; i++) assert.ok(LAUNCH_NOTES[i].hz > LAUNCH_NOTES[i - 1].hz);
+  assert.ok(Math.max(...LAUNCH_NOTES.map(n => n.at + n.length)) < 1);
 });

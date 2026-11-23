@@ -8,6 +8,10 @@ mod artwork;
 mod metadata;
 mod art_finder;
 mod palette;
+mod power;
+mod homebutton;
+#[cfg(windows)]
+mod foreground;
 mod launch;
 mod shortcuts;
 mod playtime;
@@ -175,6 +179,26 @@ async fn artwork_color(reference: String) -> Result<palette::Rgb, String> {
 async fn controller_connected() -> bool {
     tauri::async_runtime::spawn_blocking(|| padwatch::connected(Duration::from_millis(1500))).await.unwrap_or(false)
 }
+/// The power menu: "sleep", "restart" or "shutdown". Running games' play time is saved first for restart and shut down.
+#[tauri::command]
+async fn power_action(app: tauri::AppHandle, action: String) -> Result<(), String> {
+    let action = power::parse(&action)?;
+    diag::event("power", &format!("{action:?} chosen in the power menu"));
+    if action != power::Action::Sleep { session::flush_all(&app); }
+    diag::logged("power", tauri::async_runtime::spawn_blocking(move || power::perform(action)).await.map_err(|e| e.to_string())?)
+}
+/// "Quit Aether Hub" from the power menu: the same shutdown as closing normally (sessions saved, Discord cleared).
+#[tauri::command]
+async fn quit_app(app: tauri::AppHandle) { app.exit(0); }
+/// "Close game" from the quick menu. Returns the game's title.
+#[tauri::command]
+async fn close_game(id: String) -> Result<String, String> {
+    uuid::Uuid::parse_str(&id).map_err(|_| "Invalid game identifier")?;
+    diag::logged("close", tauri::async_runtime::spawn_blocking(move || session::close(&id)).await.map_err(|e| e.to_string())?)
+}
+/// The game running right now, if any, for the quick menu.
+#[tauri::command]
+async fn current_game() -> Option<session::SessionEvent> { session::current() }
 /// Stops a running "Find missing artwork" after the game it is on; what was found so far is kept.
 #[tauri::command]
 async fn cancel_artwork() { art_finder::cancel(); }
@@ -291,6 +315,7 @@ fn build_diagnostics() -> String {
             (format!("Global shortcut ({})", status.shortcut_label), diag::feature(settings.shortcut, status.shortcut_active, &status.shortcut_error)),
             ("Start with Windows".into(), diag::feature(settings.start_with_windows, status.startup_error.is_empty(), &status.startup_error)),
             ("Controller wake-up".into(), diag::feature(settings.pad_wake, status.pad_watching, &status.pad_error)),
+            ("PS / Xbox button".into(), diag::feature(settings.home_button, status.home_active, &status.home_error)),
         ],
         library, memory: machine::footprint(), log: diag::recent(),
     };
@@ -328,7 +353,7 @@ fn main() {
             background::init(app.handle());
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![load_library, save_library, pick_file, import_artwork, resolve_artwork, scan_games, cancel_scan, launch_game, export_shortcuts, grid_artwork, startup_notice, load_playtime, backup_overview, backup_now, backup_export, backup_restore, open_backup_folder, discord_status, discord_test, steam_sync_now, background_status, take_wake_request, check_update, open_releases_page, diagnostics, log_interface_error, missing_games, find_artwork, cancel_artwork, artwork_color, controller_connected])
+        .invoke_handler(tauri::generate_handler![load_library, save_library, pick_file, import_artwork, resolve_artwork, scan_games, cancel_scan, launch_game, export_shortcuts, grid_artwork, startup_notice, load_playtime, backup_overview, backup_now, backup_export, backup_restore, open_backup_folder, discord_status, discord_test, steam_sync_now, background_status, take_wake_request, check_update, open_releases_page, diagnostics, log_interface_error, missing_games, find_artwork, cancel_artwork, artwork_color, controller_connected, power_action, quit_app, close_game, current_game])
         .build(tauri::generate_context!())
         .expect("Aether Hub could not initialize");
     app.run(|handle, event| {

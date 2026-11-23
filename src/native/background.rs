@@ -2,7 +2,7 @@
 //! coming forward in Big Box when a controller connects. Every one of these is off until the player switches it on.
 //!
 //! One rule runs through all of it: the window is only ever hidden while the tray icon exists to bring it back.
-use crate::{autostart, behavior::{self, Wanted}, diag, hotkey, models::Settings, padwatch, session, storage};
+use crate::{autostart, behavior::{self, Wanted}, diag, homebutton, hotkey, models::Settings, padwatch, session, storage};
 use serde::Serialize;
 use std::sync::{atomic::{AtomicBool, Ordering}, Mutex, MutexGuard};
 use tauri::{
@@ -19,9 +19,11 @@ static PAD_WAKE: AtomicBool = AtomicBool::new(false);
 /// (a quiet start at sign-in) when a controller connects, so the request is kept rather than only sent as an event.
 static WAKE_PENDING: AtomicBool = AtomicBool::new(false);
 static APPLIED: Mutex<Option<Wanted>> = Mutex::new(None);
-static ERRORS: Mutex<Errors> = Mutex::new(Errors { tray: String::new(), shortcut: String::new(), startup: String::new(), pad: String::new() });
+static ERRORS: Mutex<Errors> = Mutex::new(Errors { tray: String::new(), shortcut: String::new(), startup: String::new(), pad: String::new(), home: String::new() });
+/// The PS / Xbox button listener's switch as last applied (None before the first apply).
+static HOME_APPLIED: Mutex<Option<bool>> = Mutex::new(None);
 
-struct Errors { tray: String, shortcut: String, startup: String, pad: String }
+struct Errors { tray: String, shortcut: String, startup: String, pad: String, home: String }
 fn errors() -> MutexGuard<'static, Errors> { ERRORS.lock().unwrap_or_else(|e| e.into_inner()) }
 
 #[derive(Serialize)]
@@ -31,6 +33,7 @@ pub struct Status {
     pub shortcut_active: bool, pub shortcut_label: String, pub shortcut_error: String,
     pub startup_error: String,
     pub pad_watching: bool, pub pad_error: String,
+    pub home_active: bool, pub home_error: String,
 }
 pub fn status() -> Status {
     let e = errors();
@@ -39,11 +42,32 @@ pub fn status() -> Status {
         shortcut_active: hotkey::active(), shortcut_label: hotkey::LABEL.into(), shortcut_error: e.shortcut.clone(),
         startup_error: e.startup.clone(),
         pad_watching: padwatch::running(), pad_error: e.pad.clone(),
+        home_active: homebutton::active(), home_error: e.home.clone(),
     }
 }
 
 pub fn show_main(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window("main") { let _ = window.unminimize(); let _ = window.show(); let _ = window.set_focus(); }
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize(); let _ = window.show(); let _ = window.set_focus();
+        // A game or another program in front normally keeps Windows from handing focus over; see foreground.rs.
+        #[cfg(windows)] if let Ok(hwnd) = window.hwnd() { crate::foreground::force(hwnd.0 as isize); }
+    }
+}
+/// The PS / Xbox button was pressed while Aether Hub was not in front. During a game it opens the quick menu over
+/// it; otherwise it comes forward in Big Box. While Aether Hub is in front its own controller handling takes the press.
+fn home_pressed(app: &AppHandle) {
+    let in_front = app.get_webview_window("main").and_then(|w| w.is_focused().ok()).unwrap_or(false);
+    if in_front { return; }
+    match session::current() {
+        Some(playing) => { show_main(app); let _ = app.emit("aether:quick-menu", playing); }
+        None => request_big_box(app),
+    }
+}
+fn set_home(app: &AppHandle, on: bool) {
+    if on {
+        let handle = app.clone();
+        match homebutton::start(move || home_pressed(&handle)) { Ok(()) => errors().home.clear(), Err(e) => { diag::event("home", &e); errors().home = e } }
+    } else { homebutton::stop(); errors().home.clear(); }
 }
 /// Brings the launcher forward and asks it to open Big Box.
 pub fn request_big_box(app: &AppHandle) {
@@ -121,6 +145,8 @@ pub fn apply(app: &AppHandle, settings: &Settings) {
     if let Some(on) = plan.shortcut { set_shortcut(app, on); }
     if let Some(on) = plan.autostart { set_startup(on); }
     if plan.pad == Some(true) { watch_pads(app); }
+    let home_changed = { let mut was = HOME_APPLIED.lock().unwrap_or_else(|e| e.into_inner()); let changed = *was != Some(settings.home_button); *was = Some(settings.home_button); changed };
+    if home_changed && (settings.home_button || homebutton::active()) { set_home(app, settings.home_button); }
 }
 
 /// At start-up: apply the saved settings, then honour a quiet start. A quiet start (`--tray`, used by "start with

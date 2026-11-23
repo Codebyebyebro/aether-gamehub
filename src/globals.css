@@ -101,3 +101,13 @@ html[data-input="pad"] .game-cover:focus { outline-offset: 2px; }
 .boot-splash span { font-family: 'Manrope', sans-serif; font-size: 22px; font-weight: 800; letter-spacing: -0.01em; animation: boot-in 0.9s cubic-bezier(.2,.8,.2,1) 0.18s both; }
 @keyframes boot-in { from { opacity: 0; transform: scale(0.82) translateY(6px); } }
 @keyframes boot-out { to { opacity: 0; visibility: hidden; } }
+
+/* Console menus (power menu, quick menu): over everything, selection drawn as a solid white bar like a console. */
+.console-menu { background-color: rgb(5 8 16 / 0.7); backdrop-filter: blur(10px); animation: tint-in 0.18s ease both; }
+.console-menu-panel { background-color: rgb(16 22 36 / 0.96); border: 1px solid rgb(255 255 255 / 0.12); box-shadow: 0 24px 60px rgb(0 0 0 / 0.5); }
+.console-menu-item { display: block; width: 100%; border-radius: 1rem; padding: 0.75rem 1rem; text-align: left; transition: background-color 0.12s ease, color 0.12s ease; }
+.console-menu-item.is-on { background: #fff; color: #131a2c; }
+.console-menu-item.is-on span:last-child:not(:first-child) { color: rgb(19 26 44 / 0.65); }
+.console-menu-answer { flex: 1; border-radius: 1rem; border: 1px solid rgb(255 255 255 / 0.25); padding: 0.8rem 1rem; font-size: 15px; font-weight: 700; transition: background-color 0.12s ease, color 0.12s ease; }
+.console-menu-answer.is-on { background: #fff; color: #131a2c; border-color: #fff; }
+.console-menu :focus-visible { outline: 3px solid var(--aether-accent); outline-offset: 2px; }

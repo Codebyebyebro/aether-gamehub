@@ -14,6 +14,10 @@ export interface PadStatus { connected: boolean; name: string }
 type Source = () => PadHandlers;
 interface Layer { source: Source; rules: PadRules }
 const layers: Layer[] = [];
+/** What a button does when the screen on top has no use for it: Options opens the power menu, PS goes home. */
+const fallbacks: PadHandlers = {};
+/** Sets (or clears, with null) the app-wide action for a button no screen handles itself. */
+export function setPadFallback(action: PadAction, handler: (() => void) | null) { if (handler) fallbacks[action] = handler; else delete fallbacks[action]; }
 const machine = new PadMachine(DEFAULT_TIMING);
 const listeners = new Set<() => void>();
 let status: PadStatus = { connected: false, name: "" };
@@ -40,7 +44,7 @@ function tick(now: number) {
   const top = layers[layers.length - 1];
   for (const action of machine.step(now, toFrame(pad), top?.rules)) {
     document.documentElement.dataset.input = "pad"; // lets the stylesheet draw a focus ring while the pad is in use
-    try { top?.source()[action]?.(); } catch (error) { console.error("Controller action failed", error); }
+    try { (top?.source()[action] ?? fallbacks[action])?.(); } catch (error) { console.error("Controller action failed", error); }
   }
 }
 function sync() {

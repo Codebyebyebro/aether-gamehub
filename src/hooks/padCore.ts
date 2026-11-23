@@ -2,15 +2,19 @@
  * Pure gamepad logic: turns raw button/axis snapshots into debounced, repeating menu actions.
  * It has no DOM and no timers, so it is fully unit-tested (see padCore.test.ts); `useController` feeds it frames.
  */
-/** `secondary` is Triangle; `leftTrigger`/`rightTrigger` are L2/R2 (the on-screen keyboard uses them as space, Shift and Done). */
-export type PadAction = "up" | "down" | "left" | "right" | "confirm" | "back" | "prevTab" | "nextTab" | "details" | "secondary" | "leftTrigger" | "rightTrigger";
+/**
+ * `secondary` is Triangle; `leftTrigger`/`rightTrigger` are L2/R2 (the on-screen keyboard uses them as space, Shift and
+ * Done); `menu` is Options (Xbox: Menu), which opens the power menu; `home` is the PS button (Xbox: guide).
+ */
+export type PadAction = "up" | "down" | "left" | "right" | "confirm" | "back" | "prevTab" | "nextTab" | "details" | "secondary" | "leftTrigger" | "rightTrigger" | "menu" | "home";
 export interface PadFrame { buttons: readonly boolean[]; axes: readonly number[] }
 
 /**
  * Standard-mapping indices. WebView2 (Chromium) reports a PS5 DualSense, and Xbox pads, with this layout:
- * Cross = 0, Circle = 1, Square = 2, Triangle = 3, L1 = 4, R1 = 5, L2 = 6, R2 = 7 (analog), D-pad = 12 to 15.
+ * Cross = 0, Circle = 1, Square = 2, Triangle = 3, L1 = 4, R1 = 5, L2 = 6, R2 = 7 (analog), Options = 9, D-pad = 12 to 15,
+ * PS = 16. Windows' Xbox Game Bar can take the Xbox guide button before the app sees it.
  */
-export const BUTTON = { cross: 0, circle: 1, square: 2, triangle: 3, l1: 4, r1: 5, l2: 6, r2: 7, dpadUp: 12, dpadDown: 13, dpadLeft: 14, dpadRight: 15 } as const;
+export const BUTTON = { cross: 0, circle: 1, square: 2, triangle: 3, l1: 4, r1: 5, l2: 6, r2: 7, options: 9, dpadUp: 12, dpadDown: 13, dpadLeft: 14, dpadRight: 15, ps: 16 } as const;
 
 export interface PadTiming {
   /** Frames closer together than this are skipped, so a 144 Hz display does not poll 144 times a second. */
@@ -41,7 +45,7 @@ export const DEFAULT_RULES: PadRules = { quick: new Set(DIRECTIONS), repeat: new
 const BUTTON_ACTIONS: readonly (readonly [number, PadAction])[] = [
   [BUTTON.dpadUp, "up"], [BUTTON.dpadDown, "down"], [BUTTON.dpadLeft, "left"], [BUTTON.dpadRight, "right"],
   [BUTTON.cross, "confirm"], [BUTTON.circle, "back"], [BUTTON.l1, "prevTab"], [BUTTON.r1, "nextTab"], [BUTTON.square, "details"],
-  [BUTTON.triangle, "secondary"], [BUTTON.l2, "leftTrigger"], [BUTTON.r2, "rightTrigger"],
+  [BUTTON.triangle, "secondary"], [BUTTON.l2, "leftTrigger"], [BUTTON.r2, "rightTrigger"], [BUTTON.options, "menu"], [BUTTON.ps, "home"],
 ];
 
 export class PadMachine {

@@ -93,7 +93,11 @@ export default function Customize({ open, onOpenChange, settings, update }: { op
         </div>
         <div className="rounded-xl bg-secondary p-4">
           <div className="flex items-center justify-between text-sm font-semibold"><span>Navigation sounds</span><Switch checked={settings.sounds} onCheckedChange={sounds => update({ sounds })} aria-label="Navigation sounds" /></div>
-          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">A soft click when the controller moves the selection.</p>
+          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">A soft click when the controller moves the selection, a chime when Aether Hub starts in Big Box, and a short sound when you launch a game with the controller.</p>
+        </div>
+        <div className="rounded-xl bg-secondary p-4">
+          <div className="flex items-center justify-between text-sm font-semibold"><span>Controller rumble</span><Switch checked={settings.rumble} onCheckedChange={rumble => update({ rumble })} aria-label="Controller rumble" /></div>
+          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">A short rumble when you launch a game with the controller. Xbox controllers rumble; a PS5 controller may not, depending on how Windows connects it.</p>
         </div>
         <Button variant="ghost" className="w-full rounded-xl text-xs text-muted-foreground" onClick={() => update({ ...defaults, onboarded: settings.onboarded, folders: settings.folders, afterLaunch: settings.afterLaunch })}><RotateCcw size={14} className="mr-2" />Reset appearance</Button>
       </div>
