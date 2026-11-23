@@ -38,7 +38,7 @@ class FakeAudioContext implements Fake {
     return hold ? new Promise(resolve => { holdDecode = () => resolve({ length: buffer.byteLength }); }) : Promise.resolve({ length: buffer.byteLength });
   }
   // Like a real browser, starting a source on a context that is not running is an error.
-  createBufferSource() { const owner = this; return { buffer: null, connect() {}, start() { if (owner.state !== "running") throw new Error("InvalidStateError"); owner.starts++; } }; }
+  createBufferSource() { return { buffer: null, connect() {}, start: () => { if (this.state !== "running") throw new Error("InvalidStateError"); this.starts++; } }; }
   resume() { this.resumed++; this.state = "running"; return Promise.resolve(); }
   close() { this.closed = true; this.state = "closed"; return Promise.resolve(); }
 }

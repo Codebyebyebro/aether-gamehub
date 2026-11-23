@@ -3,6 +3,7 @@
 use std::path::Path;
 
 /// The name of the value under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
+#[cfg_attr(not(windows), allow(dead_code))] // only Windows has a Run key
 pub const VALUE: &str = "AetherHub";
 /// Passed at sign-in so the launcher can start quietly in the tray (it only does so when the tray is on).
 pub const ARG: &str = "--tray";

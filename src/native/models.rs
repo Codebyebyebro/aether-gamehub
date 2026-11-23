@@ -66,6 +66,8 @@ pub struct Settings {
     /// The PS / Xbox button brings Aether Hub forward (a quick menu while a game runs). It listens to the controller in
     /// the background, so like the other background behaviours it is off until the player switches it on.
     pub home_button: bool,
+    /// Leaving Big Box keeps the window full screen. Off: Big Box leaves full screen only if it was the one to turn it on.
+    pub stay_fullscreen: bool,
 }
 impl Default for Settings {
     fn default() -> Self { Self { theme: "cream".into(), accent: "#5b4bd6".into(), view: "poster".into(),
@@ -74,7 +76,7 @@ impl Default for Settings {
         backup_enabled: true, backup_dir: String::new(), backup_keep: 10,
         discord_enabled: false, discord_app_id: String::new(),
         steam_sync_enabled: false, steam_profile: String::new(), steam_api_key: String::new(), steam_sync_hours: 6,
-        keep_in_tray: false, shortcut: false, start_with_windows: false, pad_wake: false, check_updates: false, living_colors: true, console_mode: true, rumble: true, home_button: false } }
+        keep_in_tray: false, shortcut: false, start_with_windows: false, pad_wake: false, check_updates: false, living_colors: true, console_mode: true, rumble: true, home_button: false, stay_fullscreen: false } }
 }
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Library { pub games: Vec<Game>, pub settings: Settings }
@@ -159,6 +161,10 @@ mod tests {
         let json = serde_json::to_string(&Settings::default()).unwrap();
         assert!(json.contains(r#""rumble":true"#) && json.contains(r#""homeButton":false"#));
         assert!(serde_json::from_str::<Settings>(r#"{"homeButton":true}"#).unwrap().home_button);
+    }
+    #[test] fn staying_full_screen_is_off_until_asked() {
+        assert!(!serde_json::from_str::<Settings>(r#"{"theme":"navy"}"#).unwrap().stay_fullscreen);
+        assert!(serde_json::from_str::<Settings>(r#"{"stayFullscreen":true}"#).unwrap().stay_fullscreen);
     }
     #[test] fn background_settings_use_their_camel_case_names() {
         let json = serde_json::to_string(&Settings::default()).unwrap();

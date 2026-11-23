@@ -216,7 +216,17 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("aether-session-{folder}-{}", uuid::Uuid::new_v4().simple()));
         fs::create_dir_all(&dir).unwrap();
         fs::copy(String::from_utf8_lossy(&which.stdout).trim(), dir.join("game")).unwrap();
-        let child = Command::new(dir.join("game")).arg("30").spawn().unwrap();
+        // Another test thread may fork while this fresh copy is still open for writing, and Linux then refuses to run it
+        // for a moment ("text file busy", error 26). That is a property of copying and running at once, not of the code
+        // under test, so wait it out instead of failing.
+        let mut tries = 0;
+        let child = loop {
+            match Command::new(dir.join("game")).arg("30").spawn() {
+                Ok(child) => break child,
+                Err(e) if e.raw_os_error() == Some(26) && tries < 50 => { tries += 1; std::thread::sleep(std::time::Duration::from_millis(20)); }
+                Err(e) => panic!("could not start the test game: {e}"),
+            }
+        };
         (dir, child)
     }
     fn stop(mut child: Child, dir: PathBuf) { child.kill().unwrap(); child.wait().unwrap(); let _ = fs::remove_dir_all(dir); }

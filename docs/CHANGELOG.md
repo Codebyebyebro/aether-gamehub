@@ -2,8 +2,10 @@
 
 Each release has a section here named after its version. The Windows build copies that section into the release notes, and a test fails if the current version has none.
 
-## Not released yet
+## 0.3.0
 
+- **Do everything from Big Box.** Press **Up** from the games for a top bar with **Search** (opens the on-screen keyboard), **Scan for games**, **Settings** and **Exit**. Scan and Settings open over the library with the controller working, and Big Box comes back when you close them.
+- **Full screen your way.** Press **F11** at any time to switch full screen on or off. Leaving Big Box keeps full screen if it was already on before Big Box opened, and **Customize UI → Stay full screen after Big Box** keeps it on every time.
 - **New logo.** A sharper two-tone "A" with a gold shard, on the app icon, the sidebar, Big Box and the start-up screen.
 - **A sound for every action.** Moving, selecting, going back, switching category, opening a page or menu, and adding a favorite each have their own short sound. The move click now also plays in Big Box and in the console menus, where it was missing, and it no longer goes silent after Windows pauses the audio.
 - **Fixed:** in Big Box, the row of games no longer jumps up and down while you scroll through it.

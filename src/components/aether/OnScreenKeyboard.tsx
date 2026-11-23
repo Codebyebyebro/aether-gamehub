@@ -77,7 +77,7 @@ export default function OnScreenKeyboard() {
   // Portalled to <body> so it sits above any open dialog. Its own pointer handling keeps a Radix dialog underneath
   // from treating a key press as a click outside (which would close it) or as a reason to move focus.
   return createPortal(
-    <div data-pad-skip role="group" aria-label="On-screen keyboard" className="fixed inset-x-0 bottom-0 flex justify-center px-3 pb-4" style={{ zIndex: 60, pointerEvents: "auto" }} onPointerDown={e => e.stopPropagation()} onMouseDown={e => e.preventDefault()}>
+    <div data-pad-skip role="group" aria-label="On-screen keyboard" className="fixed inset-x-0 bottom-0 z-[80] flex justify-center px-3 pb-4" style={{ zIndex: 60, pointerEvents: "auto" }} onPointerDown={e => e.stopPropagation()} onMouseDown={e => e.preventDefault()}>
       <div className="w-full max-w-[860px] rounded-3xl border bg-card p-4 shadow-2xl">
         <div className="mb-3 rounded-xl border bg-background px-3 py-2">
           <p className="eyebrow mb-0.5">{nameOf(field)}</p>
