@@ -49,4 +49,13 @@
 }
 [class~="text-[var(--aether-accent)]"] { color: var(--aether-ink); }
 @media (prefers-reduced-motion: reduce) { *,*::before,*::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
-.performance *, .performance *::before, .performance *::after { animation: none !important; transition: none !important; backdrop-filter: none !important; }
+/* Performance mode: nothing decorative that the GPU or compositor has to work for. Focus rings are kept (the global
+   :focus-visible outline above still draws them), so keyboard and controller use stay visible. */
+.performance *, .performance *::before, .performance *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; text-shadow: none !important; will-change: auto !important; }
+.performance *:not(:focus-visible), .performance *:not(:focus-visible)::before, .performance *:not(:focus-visible)::after { box-shadow: none !important; filter: none !important; }
+
+/* Controller mode: set on <html> by useController while a pad is in use, and cleared again by the mouse or keyboard. */
+/* scroll-margin keeps the focused control, ring included, clear of the window edge and shows a little of what comes next. */
+html[data-input="pad"] :focus { outline: 3px solid var(--aether-accent); outline-offset: 3px; scroll-margin: 36px; }
+html[data-input="pad"] .game-cover:focus { outline-offset: 2px; }
+.pad-key { display: inline-flex; min-width: 1.6rem; align-items: center; justify-content: center; border-radius: 0.4rem; border: 1px solid color-mix(in srgb, currentColor 35%, transparent); padding: 0.15rem 0.4rem; font-size: 10px; font-weight: 600; line-height: 1; }

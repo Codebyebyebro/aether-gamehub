@@ -1,4 +1,4 @@
 [[permission]]
 identifier = "library-commands"
 description = "Allow the main Aether Hub window to manage its local library and user-approved native game operations"
-commands.allow = ["load_library", "save_library", "pick_file", "import_artwork", "resolve_artwork", "scan_games", "launch_game", "export_shortcuts", "grid_artwork"]
+commands.allow = ["load_library", "save_library", "pick_file", "import_artwork", "resolve_artwork", "scan_games", "cancel_scan", "launch_game", "export_shortcuts", "grid_artwork", "startup_notice", "load_playtime", "backup_overview", "backup_now", "backup_export", "backup_restore", "open_backup_folder", "discord_status", "discord_test", "steam_sync_now", "background_status", "take_wake_request", "check_update", "open_releases_page", "diagnostics", "log_interface_error", "missing_games"]

@@ -1,13 +1,30 @@
 name: Aether Hub Windows build
+# check:   every push to main/master and every pull request. Type check, logic tests, production frontend build and the
+#          Rust tests (including the permission-list test), all with the locked dependency files.
+# package: manual runs ("Run workflow") and v* tags only, because the release build is slow. Builds the executable and
+#          the offline installer, then installs and starts them as a first end-to-end check.
+# draft:   only on a manual run with "draft_release" ticked. Turns that run's own installer into a DRAFT release that only
+#          people with write access can see. See docs/RELEASING.md.
 on:
   workflow_dispatch:
+    inputs:
+      draft_release:
+        description: 'After a good build, also create a DRAFT release from it (nothing is public until someone presses Publish)'
+        type: boolean
+        default: false
   push:
+    branches: [main, master]
     tags: ['v*']
+  pull_request:
 permissions:
   contents: read
+concurrency:
+  group: windows-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 jobs:
-  windows:
+  check:
     runs-on: windows-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -27,25 +44,162 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Frontend type check
         run: pnpm run typecheck
+      - name: Frontend logic tests (controller, keyboard, navigation, formatting)
+        run: pnpm run test:logic
+      - name: Production frontend build
+        run: pnpm run build
       - name: Generate original native icons
         run: pnpm run desktop:icons
-      - name: Native tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml
+      - name: Native tests (includes the command permission list)
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+
+  package:
+    needs: check
+    # A manual run builds the installer even when check failed (so there is something to try); a tag release needs check to pass.
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || (startsWith(github.ref, 'refs/tags/v') && needs.check.result == 'success')) }}
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - name: Record the check result in the run summary
+        shell: pwsh
+        run: |
+          Add-Content $env:GITHUB_STEP_SUMMARY "## Build after a check job result of ${{ needs.check.result }}. An installer built after a failed check is for trying only, not for release."
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - name: Install locked frontend dependencies
+        run: pnpm install --frozen-lockfile
       - name: Build native executable and offline setup
         run: pnpm run desktop:build
       - name: Collect executable, installer and checksums
         shell: pwsh
         run: |
+          $release = 'src-tauri/target/x86_64-pc-windows-msvc/release'
           New-Item -ItemType Directory -Force artifacts | Out-Null
-          Copy-Item 'src-tauri/target/x86_64-pc-windows-msvc/release/aether-hub.exe' 'artifacts/Aether Hub.exe'
-          Get-ChildItem 'src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis' -Filter '*.exe' | Copy-Item -Destination artifacts
+          # tauri build renames the binary to mainBinaryName ("Aether Hub"); fall back to the Cargo name if it did not
+          $exe = @('Aether Hub.exe', 'aether-hub.exe') | ForEach-Object { Join-Path $release $_ } | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $exe) { throw "No app executable found in $release" }
+          Copy-Item $exe 'artifacts/Aether Hub.exe'
+          $installers = @(Get-ChildItem "$release/bundle/nsis" -Filter '*.exe')
+          if ($installers.Count -eq 0) { throw 'The NSIS installer was not produced' }
+          $installers | Copy-Item -Destination artifacts
           Copy-Item docs/INSTALLATION.md artifacts
           Get-ChildItem artifacts -Filter '*.exe' | ForEach-Object {
             $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
             "$hash  $($_.Name)"
           } | Set-Content 'artifacts/SHA256SUMS.txt'
+          Get-ChildItem artifacts | Format-Table Name, Length
+      # The two start-up checks are new and have not been run on a runner yet, so a failure here is reported in the run
+      # summary without failing the build; read the summary page after every run.
+      - name: Start-up check, loose executable
+        continue-on-error: true
+        timeout-minutes: 5
+        shell: pwsh
+        run: ./scripts/smoke-windows.ps1 -Exe (Resolve-Path 'artifacts/Aether Hub.exe').Path -Label 'loose executable'
+      - name: Start-up check, quiet start in the tray
+        continue-on-error: true
+        timeout-minutes: 5
+        shell: pwsh
+        run: ./scripts/smoke-tray-windows.ps1 -Exe (Resolve-Path 'artifacts/Aether Hub.exe').Path
+      - name: Start-up check, after a silent install
+        continue-on-error: true
+        timeout-minutes: 10
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem artifacts -Filter '*setup*.exe' | Select-Object -First 1
+          if (-not $setup) { throw 'No setup executable in artifacts' }
+          $install = Start-Process -FilePath $setup.FullName -ArgumentList '/S' -PassThru
+          $null = $install.Handle
+          if (-not $install.WaitForExit(300000)) { throw 'The installer did not finish within 5 minutes' }
+          "Installer exit code: $($install.ExitCode)"
+          $found = Get-ChildItem $env:LOCALAPPDATA, $env:ProgramFiles -Recurse -Depth 3 -Filter 'Aether Hub.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $found) { Add-Content $env:GITHUB_STEP_SUMMARY '### Start-up check: installed app'; Add-Content $env:GITHUB_STEP_SUMMARY "- FAIL: installer exit code $($install.ExitCode), no installed Aether Hub.exe found"; exit 1 }
+          ./scripts/smoke-windows.ps1 -Exe $found.FullName -Label 'installed app'
       - uses: actions/upload-artifact@v4
         with:
           name: Aether-Hub-Windows-x64-unsigned
           path: artifacts/
           if-no-files-found: error
+
+  draft:
+    needs: package
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.draft_release }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SHA: ${{ github.sha }}
+      RUN_ID: ${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: The version and the release tag
+        id: ver
+        run: |
+          set -euo pipefail
+          conf=$(jq -r .version src-tauri/tauri.conf.json)
+          cargo=$(grep -m1 '^version' src-tauri/Cargo.toml | cut -d'"' -f2)
+          echo "tauri.conf.json: $conf, Cargo.toml: $cargo"
+          [[ "$conf" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::version must look like 1.2.3"; exit 1; }
+          [ "$conf" = "$cargo" ] || { echo "::error::the two version numbers differ"; exit 1; }
+          if gh release view "v$conf" >/dev/null 2>&1; then echo "::error::a release v$conf already exists"; exit 1; fi
+          echo "version=$conf" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@v4
+        with:
+          name: Aether-Hub-Windows-x64-unsigned
+          path: built
+      - name: Check the checksums, then name the files for the release
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          ls -l built
+          (cd built && tr -d '\r' < SHA256SUMS.txt | sha256sum -c -)
+          setups=(built/*setup*.exe)
+          [ "${#setups[@]}" -eq 1 ] && [ -f "${setups[0]}" ] || { echo "::error::expected exactly one setup executable"; exit 1; }
+          # GitHub turns spaces in uploaded names into dots, which would no longer match a checksum file, so use a name without spaces.
+          mkdir release
+          cp "${setups[0]}" "release/Aether-Hub_${VERSION}_x64-setup.exe"
+          cp built/INSTALLATION.md release/INSTALLATION.md
+          (cd release && sha256sum "Aether-Hub_${VERSION}_x64-setup.exe" > SHA256SUMS.txt && cat SHA256SUMS.txt)
+      - name: Write the release notes
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          changes=$(awk -v v="$VERSION" '/^## /{ on = ($2 == v); next } on' docs/CHANGELOG.md)
+          [ -n "$(printf '%s' "$changes" | tr -d '[:space:]')" ] || { echo "::error::docs/CHANGELOG.md has no section named $VERSION"; exit 1; }
+          {
+            echo "Aether Hub $VERSION"
+            echo
+            echo "## What's new"
+            echo
+            printf '%s\n' "$changes"
+            echo
+            echo "**This installer is not code-signed yet**, so Windows SmartScreen may warn when you run it (choose More info, then Run anyway). To check that you have the file this repository built, run 'Get-FileHash .\\Aether-Hub_${VERSION}_x64-setup.exe' in PowerShell and compare it with SHA256SUMS.txt."
+            echo
+            echo "Install: run the setup file. No Node.js, Rust or terminal is needed. INSTALLATION.md, attached below, has the details."
+            echo
+            echo "Status: this build was compiled, tested, installed silently and started (also quietly in the tray) on GitHub's Windows runners. It has not yet been tried on a physical PC with a controller, so the tray icon, the shortcut, the controller wake-up and start with Windows are still unverified in real use."
+            echo
+            echo "Built by GitHub Actions run $RUN_ID from commit $SHA."
+          } > notes.md
+          cat notes.md
+      - name: Create the draft release
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh release create "v$VERSION" --draft --target "$SHA" --title "Aether Hub $VERSION" --notes-file notes.md release/*
+          echo "Draft v$VERSION created from this run. Open the Releases page, read it, and press Publish release when ready." | tee -a "$GITHUB_STEP_SUMMARY"

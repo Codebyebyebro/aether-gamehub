@@ -15,13 +15,50 @@ The application executable is also included in build artifacts, but a loose `.ex
 
 Aether starts with an empty native library. Browser showcase games are not your installed library. Steam, Epic, and Riot discovery reads local installation files without collecting credentials. The platform clients may still require their usual login.
 
-Custom executable scanning is limited to selected folders and six levels. Review every candidate, especially generic executable names, before import. Nothing runs just because it was discovered.
+Custom executable scanning is limited to selected folders and six levels. The scanner skips executables under 2 MB and anything whose file name or folder (below the folder you chose) looks like an installer, updater, patcher, crash handler, helper, redistributable, browser, document, download, temp, driver, configuration, SDK, or school material, plus well-known programs such as browsers and Office. It also looks at where a file lives. Anything under Program Files, ProgramData, AppData or a hidden folder such as `.cargo` is an installed program, and is offered only when game files sit next to it (Steam, Unity, Unreal, Godot, GameMaker, RPG Maker or Ren'Py files, store or online-service libraries, or game audio and physics libraries; folders of sounds or textures alone are not enough). A file sitting loose in a Downloads folder, or whose name carries a version number such as `Rainmeter-4.5.28`, is treated as an installer and dropped; a file inside a Downloads subfolder with no game files is kept under **Filtered out**. A folder named exactly "Games" (also Steam Library, GOG Games, EA Games and similar) is trusted. The scanner never offers Aether Hub itself, and the review shows how many installed programs and installers it skipped. Games already listed by Steam or Epic are not repeated. Skipped files that are large enough to be real games are kept under **Filtered out** in the review, with the reason, so one with an unlucky name (for example a title containing "crash") can still be ticked and imported. Review every candidate, especially generic executable names, before import. Nothing runs just because it was discovered.
+
+Games that point at a program file (an .exe) on a drive are checked for being there: when the library opens, when you add, remove or re-point a game, and when you come back to the window (at most every 15 seconds, and a slow drive is given four seconds before Aether Hub stops waiting). A game whose file was moved, renamed or uninstalled gets a **Missing** tag and is listed under **Missing files** in the sidebar. A game on a drive that is not connected, such as an unplugged USB disk, gets **Drive not connected** instead, and is not counted as broken. Pressing Play on a flagged game looks again first, so a file you put back launches normally; otherwise it says what happened and, for a missing file, opens the editor with a note so you can choose where it is now. Steam, Epic and other store links are never checked, because Aether Hub cannot tell whether the store still has the game. Nothing is deleted or changed by the check. It is off in the browser preview, which has no files to look at.
 
 Executable launches support arguments and working directories. Steam/Epic URI launches delegate to their clients; configure game arguments in the storefront client. Riot uses its client executable and product-specific arguments.
 
 Local PNG, JPEG, and WebP images are copied into Aether's data folder. A resized rendering copy avoids unnecessarily decoding large originals. Downloaded Steam/SteamGridDB artwork is cached when available. If artwork is missing, the title-only fallback remains usable.
 
-Data is stored under `%APPDATA%\com.aetherhub.desktop`: `library.json`, `library.backup.json`, and `covers/`. Corrupt libraries are not silently overwritten. Save failures show an error. Back up this directory before manual recovery or moving to another PC.
+Data is stored under `%APPDATA%\com.aetherhub.launcher`: `library.json`, `library.backup.json`, `playtime.json`, `covers/`, and `backups/`. Earlier releases used `%APPDATA%\com.aetherhub.desktop`; the first time this version starts it copies your library and the covers it uses into the new folder and leaves the old folder untouched (you may delete it once you are happy). Corrupt libraries are not silently overwritten. Save failures show an error.
+
+## Controller
+
+Connect a PS5 DualSense by USB or Bluetooth (Xbox controllers work too). The D-pad or left stick moves, **Cross** launches the focused game or presses the focused control, **Circle** goes back or closes a dialog, **L1/R1** switch category tabs (or Settings tabs), and **Square** opens a game's details. Big Box has its own category pills for L1/R1. The controller is only read while Aether Hub is the focused window, so it never competes with a running game. A short, soft click plays each time the selection moves (and when the on-screen keyboard's highlighted key changes); switch it off under **Customize UI → Navigation sounds**.
+
+## Running in the background and couch mode
+
+Under **Settings → General → Running in the background**, each of these is off until you switch it on:
+
+- **Keep running in the system tray.** Closing the window hides Aether Hub next to the clock instead of quitting. Click the icon to bring it back; right-click it for **Open Aether Hub**, **Open Big Box** and **Quit Aether Hub**. Windows may put a new icon under the ^ arrow; drag it out to keep it in view. If you ever cannot find it, opening Aether Hub again from the Start menu shows the window. Aether Hub only hides itself while the icon exists: if the icon cannot be created, closing the window still quits and Settings says so.
+- **Global shortcut (Ctrl+Alt+Space).** Brings Aether Hub forward from anywhere. Only that one key combination is reserved and no other key is read. If another program already uses it, Settings tells you.
+- **Start with Windows.** Adds one entry for your account only (never for everyone on the PC) and removes it when you switch this off. With the tray on, Aether Hub starts quietly in the tray; otherwise its window opens as usual.
+- **Open Big Box when a controller connects.** Turn your controller on and Aether Hub comes forward in Big Box. It needs Aether Hub running (in the tray or minimized) and stays out of the way while a game launched from Aether Hub is running. Windows only tells Aether Hub that a controller appeared; no button is read while the window is hidden. Steam can hide a physical controller from Windows while Steam is running, in which case this will not notice it.
+
+Choosing **Close Launcher Completely** under "When a game starts" quits Aether Hub when a game launches, which also ends the tray icon, the shortcut and the controller wake-up. Choose Minimize or Do nothing to keep them.
+
+## Updates
+
+Aether Hub never updates itself. **Settings → General → Updates** has **Check now**, and an optional **Check for updates when Aether Hub starts** (off by default). A check is one request to GitHub's public releases page for this project; if a newer version exists you get a button that opens the download page, and you install it yourself like the first time. Installers are not code-signed yet, so Windows may warn when you run one.
+
+## If something does not work
+
+**Settings → General → If something does not work → Copy diagnostics** puts a short report on the clipboard to paste where you ask for help. It lists the Aether Hub and Windows versions, which background features are on and whether they are working, how much memory Aether Hub and its web view use, and the last entries of a small log. The log is two files of at most 256 KB each, `aether-hub.log` and `aether-hub.old.log`, in Aether Hub's data folder (`%APPDATA%\com.aetherhub.launcher`). It records only that something went wrong: a crash, a game that would not launch, a scan or backup that failed, a background feature that could not start, an error in the interface. It never holds keys, ids or your game list, your Windows profile folder is shortened to `~`, and nothing is sent anywhere. An error line can still name a game's folder or file, so read the report before you share it. Deleting the two files is safe.
+
+## Playtime, Steam sync, and Discord
+
+Playtime is recorded for games launched from Aether Hub while the launcher stays open (Do Nothing or Minimize). Exported Windows shortcuts hand off without opening the interface, so they are not tracked.
+
+**Steam playtime sync** (Settings, Integrations) reads total hours from your public Steam profile: set "Game details" to Public, then enter your profile link, custom name, or SteamID64. A Steam Web API key is optional and makes syncing steadier. Totals only ever go up, so time played through Aether Hub is not counted twice.
+
+**Discord Rich Presence** needs your own free Discord application: create one at discord.com/developers/applications, name it, and paste its Application ID into Settings. Friends then see the game you launched, with a play timer, for Steam, Epic, Riot, and standalone games. Optional: upload an image called `aether_hub` under Rich Presence, Art Assets. It requires the Discord desktop app.
+
+## Backups
+
+Settings, Backup keeps recent backups of your library, playtime, and cover references in the folder you choose (default: inside the data folder). Pick a folder inside OneDrive, Dropbox, or Google Drive and your library follows you to other PCs; Aether Hub itself has no server. **Export to a file** also embeds your custom cover images, and **Restore** saves your current library as a "before a restore" backup first. Your Steam API key is never written to a backup.
 
 ## Shortcuts
 
@@ -29,13 +66,13 @@ Choose **Create shortcuts folder**, then select a destination. Aether creates re
 
 ## Resource settings
 
-**Minimize** keeps the launcher available and does not release all RAM. **Close Hub** exits after a successful handoff and releases its processes; it does not close the game or storefront client. The launcher does not automatically reopen when the game exits.
+**When a game starts** (Settings, General): **Do Nothing** keeps the launcher open; **Minimize Launcher** keeps it available and does not release all RAM; **Close Launcher Completely** exits after a successful handoff and releases all of its processes. Closing does not close the game or storefront client, and it means playtime tracking and Discord status pause, because nothing is left running. The launcher does not automatically reopen when the game exits.
 
-**Performance Mode** disables wallpaper, blur, and transitions and requests smaller Steam artwork. Total memory includes WebView2. Under 50 MB and near-zero idle CPU are targets requiring real Windows measurements, not guaranteed figures.
+**Performance Mode** disables wallpaper, blur, shadows, and animations, requests smaller Steam artwork, and loads fewer posters at a time. Total memory includes WebView2. Under 50 MB and near-zero idle CPU are targets requiring real Windows measurements, not guaranteed figures. While no controller is connected, the controller code does no polling.
 
 ## Privacy
 
-No telemetry, launcher authentication, cloud database, or automatic background scanning. Steam artwork retrieval uses Steam's CDN. SteamGridDB is optional, uses your key only for the current editor session, and requires confirmation of artwork matches. Keys are not saved. All library and appearance settings stay local.
+No telemetry (the log described under *If something does not work* stays on this PC), launcher authentication, cloud database, or automatic background scanning. The update check is the only thing that contacts GitHub, and only if you switch it on or press Check now. Steam artwork retrieval uses Steam's CDN. Steam playtime sync, if you turn it on, asks Steam for your public profile (steamcommunity.com, or api.steampowered.com if you provide a key). Discord Rich Presence talks only to the Discord app on your PC. Both are off by default. SteamGridDB is optional, uses your key only for the current editor session, and requires confirmation of artwork matches. Keys are not saved. All library and appearance settings stay local.
 
 ## Release status
 
