@@ -70,7 +70,7 @@ export default function OnScreenKeyboard() {
     confirm: () => press(rows[pos.row][pos.col]), back: close,
     details: () => press(BACKSPACE), secondary: () => press(SPACE), prevTab: () => press(LEFT), nextTab: () => press(RIGHT),
     leftTrigger: () => press(SHIFT), rightTrigger: () => press(DONE),
-  }, { enabled: !!field, rules: RULES });
+  }, { enabled: !!field, rules: RULES, cues: false }); // typing keeps the keyboard's own quiet click
   if (!field) return null;
   const shown = previewText(edit.value, field.getAttribute("type"));
   const caret = Math.min(edit.cursor, shown.length);

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useController } from "@/hooks/useController";
 import PadHints from "@/components/aether/PadHints";
 import { stepIndex } from "@/lib/power";
+import { playCue } from "@/lib/cue";
 
 export interface MenuItem { id: string; label: string; hint?: string; confirm?: { title: string; body: string; action: string } }
 
@@ -22,9 +23,9 @@ export default function ConsoleMenu({ label, heading, sub, items, choose, close,
   const pick = (item: MenuItem) => { if (busy) return; if (item.confirm) { setAsking(item); setYes(false); } else choose(item.id); };
   const back = () => { if (asking) setAsking(null); else close(); };
   const accept = () => { if (busy) return; if (asking) { if (yes) choose(asking.id); else setAsking(null); } else if (items[index]) pick(items[index]); };
-  const move = (step: number) => { if (asking) setYes(y => !y); else setIndex(i => stepIndex(i, step, items.length)); };
+  const move = (step: number) => { playCue("move"); if (asking) setYes(y => !y); else setIndex(i => stepIndex(i, step, items.length)); };
 
-  useController({ up: () => move(-1), down: () => move(1), left: () => { if (asking) setYes(false); }, right: () => { if (asking) setYes(true); }, confirm: accept, back, menu: onMenu ?? close, home: onHome ?? close });
+  useController({ up: () => move(-1), down: () => move(1), left: () => { if (asking && yes) { setYes(false); playCue("move"); } }, right: () => { if (asking && !yes) { setYes(true); playCue("move"); } }, confirm: accept, back, menu: onMenu ?? close, home: onHome ?? close });
   // Focus follows the selection, so Enter and the mouse agree with the controller, and screen readers hear it.
   useEffect(() => { list.current?.querySelector<HTMLElement>(asking ? `[data-answer="${yes ? "yes" : "no"}"]` : `[data-item="${index}"]`)?.focus({ preventScroll: true }); }, [index, asking, yes]);
   // Captured on the window so Esc or Enter here never also reaches Big Box underneath.

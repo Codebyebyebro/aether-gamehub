@@ -1,5 +1,6 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { DEFAULT_RULES, DEFAULT_TIMING, PadMachine, pickPad, toFrame, type PadAction, type PadRules } from "./padCore";
+import { playCue, type CueKind } from "@/lib/cue";
 
 export type { PadAction, PadRules } from "./padCore";
 export type PadHandlers = Partial<Record<PadAction, () => void>>;
@@ -12,7 +13,12 @@ export interface PadStatus { connected: boolean; name: string }
  * exists, and the window is visible and focused, so an idle launcher or a game running on top costs nothing.
  */
 type Source = () => PadHandlers;
-interface Layer { source: Source; rules: PadRules }
+interface Layer { source: Source; rules: PadRules; cues: boolean }
+/**
+ * The sound each button makes when the screen uses it. Directions are left to the screens, which play the move click
+ * only when the selection really moves (pushing against an edge is silent); Triangle is the screen's to choose too.
+ */
+const ACTION_CUES: Partial<Record<PadAction, CueKind>> = { confirm: "confirm", back: "back", prevTab: "tab", nextTab: "tab", details: "open", menu: "open", home: "open" };
 const layers: Layer[] = [];
 /** What a button does when the screen on top has no use for it: Options opens the power menu, PS goes home. */
 const fallbacks: PadHandlers = {};
@@ -44,7 +50,11 @@ function tick(now: number) {
   const top = layers[layers.length - 1];
   for (const action of machine.step(now, toFrame(pad), top?.rules)) {
     document.documentElement.dataset.input = "pad"; // lets the stylesheet draw a focus ring while the pad is in use
-    try { (top?.source()[action] ?? fallbacks[action])?.(); } catch (error) { console.error("Controller action failed", error); }
+    const handler = top?.source()[action] ?? fallbacks[action];
+    if (!handler) continue;
+    const cue = top?.cues === false ? undefined : ACTION_CUES[action];
+    if (cue) playCue(cue);
+    try { handler(); } catch (error) { console.error("Controller action failed", error); }
   }
 }
 function sync() {
@@ -83,10 +93,10 @@ const getStatus = () => status;
  * category, Square opens details. Returns whether a controller is connected, for on-screen hints. `rules` (fixed for
  * the life of the layer) lets a screen such as the on-screen keyboard take fast taps and held-button repeats.
  */
-export function useController(handlers: PadHandlers, options: { enabled?: boolean; rules?: PadRules } = {}): PadStatus {
+export function useController(handlers: PadHandlers, options: { enabled?: boolean; rules?: PadRules; cues?: boolean } = {}): PadStatus {
   const latest = useRef(handlers);
   useEffect(() => { latest.current = handlers; });
-  const enabled = options.enabled ?? true; const rules = useRef(options.rules ?? DEFAULT_RULES).current;
-  useEffect(() => (enabled ? subscribe({ source: () => latest.current, rules }) : undefined), [enabled, rules]);
+  const enabled = options.enabled ?? true; const rules = useRef(options.rules ?? DEFAULT_RULES).current; const cues = options.cues ?? true;
+  useEffect(() => (enabled ? subscribe({ source: () => latest.current, rules, cues }) : undefined), [enabled, rules, cues]);
   return useSyncExternalStore(onStatus, getStatus, getStatus);
 }
