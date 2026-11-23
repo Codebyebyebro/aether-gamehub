@@ -56,6 +56,8 @@ pub struct Settings {
     pub pad_wake: bool,
     /// Ask GitHub once per start whether a newer release exists. Off by default: Aether Hub makes no network request for this unless asked.
     pub check_updates: bool,
+    /// "Living colors": the interface takes on the colours of the game in focus. On by default; Performance mode turns it off.
+    pub living_colors: bool,
 }
 impl Default for Settings {
     fn default() -> Self { Self { theme: "cream".into(), accent: "#5b4bd6".into(), view: "poster".into(),
@@ -64,7 +66,7 @@ impl Default for Settings {
         backup_enabled: true, backup_dir: String::new(), backup_keep: 10,
         discord_enabled: false, discord_app_id: String::new(),
         steam_sync_enabled: false, steam_profile: String::new(), steam_api_key: String::new(), steam_sync_hours: 6,
-        keep_in_tray: false, shortcut: false, start_with_windows: false, pad_wake: false, check_updates: false } }
+        keep_in_tray: false, shortcut: false, start_with_windows: false, pad_wake: false, check_updates: false, living_colors: true } }
 }
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Library { pub games: Vec<Game>, pub settings: Settings }
@@ -131,6 +133,12 @@ mod tests {
         let old: Settings = serde_json::from_str(r#"{"theme":"navy"}"#).unwrap();
         assert!(!old.keep_in_tray && !old.shortcut && !old.start_with_windows && !old.pad_wake && !old.check_updates,
             "closing must still quit, nothing may register a key or start with Windows, and no update request may be made, until asked");
+    }
+    #[test] fn living_colors_is_on_for_libraries_saved_before_it_existed() {
+        let old: Settings = serde_json::from_str(r#"{"theme":"navy"}"#).unwrap();
+        assert!(old.living_colors);
+        assert!(serde_json::to_string(&Settings::default()).unwrap().contains(r#""livingColors":true"#));
+        assert!(!serde_json::from_str::<Settings>(r#"{"livingColors":false}"#).unwrap().living_colors);
     }
     #[test] fn background_settings_use_their_camel_case_names() {
         let json = serde_json::to_string(&Settings::default()).unwrap();

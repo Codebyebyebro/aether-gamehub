@@ -88,6 +88,10 @@ export default function Customize({ open, onOpenChange, settings, update }: { op
           <p className="mt-2 text-xs leading-relaxed text-muted-foreground">Less motion. No blur or wallpaper. Smaller artwork requests. More room for your games.</p>
         </div>
         <div className="rounded-xl bg-secondary p-4">
+          <div className="flex items-center justify-between text-sm font-semibold"><span>Living colors</span><Switch checked={settings.livingColors} disabled={settings.performance} onCheckedChange={livingColors => update({ livingColors })} aria-label="Living colors" /></div>
+          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{settings.performance ? "Turned off while Performance mode is on." : "The app slowly takes on the colours of the game you point at, the one in the spotlight, and the one selected in Big Box."}</p>
+        </div>
+        <div className="rounded-xl bg-secondary p-4">
           <div className="flex items-center justify-between text-sm font-semibold"><span>Navigation sounds</span><Switch checked={settings.sounds} onCheckedChange={sounds => update({ sounds })} aria-label="Navigation sounds" /></div>
           <p className="mt-2 text-xs leading-relaxed text-muted-foreground">A soft click when the controller moves the selection.</p>
         </div>

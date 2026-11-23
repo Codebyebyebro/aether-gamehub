@@ -7,6 +7,7 @@ mod scan_control;
 mod artwork;
 mod metadata;
 mod art_finder;
+mod palette;
 mod launch;
 mod shortcuts;
 mod playtime;
@@ -161,6 +162,13 @@ async fn find_artwork(app: tauri::AppHandle, games: Vec<art_finder::Wanted>, key
     diag::event("artwork", &format!("found {} cover(s), {} left as they were{}", outcome.found.len(), outcome.unmatched.len(), if outcome.cancelled { " (stopped)" } else { "" }));
     Ok(outcome)
 }
+/// "Living colors": the colour that stands for a game's cover or banner, so the interface can take it on.
+#[tauri::command]
+async fn artwork_color(reference: String) -> Result<palette::Rgb, String> {
+    palette::validate(&reference)?;
+    let _permit = ART_JOBS.acquire().await.map_err(|e| e.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || palette::of_reference(&reference)).await.map_err(|e| e.to_string())?
+}
 /// Stops a running "Find missing artwork" after the game it is on; what was found so far is kept.
 #[tauri::command]
 async fn cancel_artwork() { art_finder::cancel(); }
@@ -314,7 +322,7 @@ fn main() {
             background::init(app.handle());
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![load_library, save_library, pick_file, import_artwork, resolve_artwork, scan_games, cancel_scan, launch_game, export_shortcuts, grid_artwork, startup_notice, load_playtime, backup_overview, backup_now, backup_export, backup_restore, open_backup_folder, discord_status, discord_test, steam_sync_now, background_status, take_wake_request, check_update, open_releases_page, diagnostics, log_interface_error, missing_games, find_artwork, cancel_artwork])
+        .invoke_handler(tauri::generate_handler![load_library, save_library, pick_file, import_artwork, resolve_artwork, scan_games, cancel_scan, launch_game, export_shortcuts, grid_artwork, startup_notice, load_playtime, backup_overview, backup_now, backup_export, backup_restore, open_backup_folder, discord_status, discord_test, steam_sync_now, background_status, take_wake_request, check_update, open_releases_page, diagnostics, log_interface_error, missing_games, find_artwork, cancel_artwork, artwork_color])
         .build(tauri::generate_context!())
         .expect("Aether Hub could not initialize");
     app.run(|handle, event| {

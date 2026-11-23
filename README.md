@@ -12,6 +12,8 @@ An artwork-first Windows game library built with Tauri 2, Rust, React 18, TypeSc
 - Automatic and manual backups of the library, playtime, and cover references to a folder you choose (for example inside OneDrive), with one-click restore.
 - "When a game starts" can do nothing, minimize the launcher, or close it completely.
 - Optional, all off by default: keep running in the system tray, a Ctrl+Alt+Space shortcut to bring the launcher back, start with Windows (quietly in the tray), and open Big Box when a controller connects. An optional "a newer version is available" check against this project's GitHub releases; nothing is downloaded or installed automatically.
+- Living colors: the interface takes on the main colour of the game in focus (pointer, controller, details window, Big Box selection, spotlight), picked in Rust from the cached artwork. Solid colours with easing, no gradients; text keeps its usual surfaces. Toggle in Customize UI; off in Performance mode.
+- Jump back in: the spotlight follows play (now playing, then the most recently played three), with play time and last-played date; a Recently played row; Recently played and Most played sorts.
 - "Find missing artwork": games with no cover (Epic, Riot, folder scans) are looked up by name in Steam's public store, with no account or key, and optionally on SteamGridDB with a key used for that run only. A cover is set only on an exact, unambiguous name match whose picture actually downloads; everything else is left alone and listed with the reason. Only game titles are sent. Offered after a scan that adds games without artwork.
 - Native URI/process launches, managed artwork copies and cached remote artwork.
 - Genuine Windows COM `.lnk` export and a pre-WebView headless shortcut entrypoint.
