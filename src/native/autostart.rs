@@ -63,11 +63,13 @@ mod tests {
     mod on_windows {
         use super::super::{command_line, registry};
         use std::path::PathBuf;
-        // A value name of its own, so this never touches a real "AetherHub" entry on a developer's PC.
-        const TEST_VALUE: &str = "AetherHubTestEntry";
+        // Value names of their own, so this never touches a real "AetherHub" entry on a developer's PC. Every test has
+        // names no other test uses: tests run in parallel, and sharing one name let a test's cleanup remove the value
+        // another test had just written (that failed a CI run once).
         fn exe() -> PathBuf { PathBuf::from("C:\\Program Files\\Aether Test\\Aether Hub.exe") }
 
         #[test] fn the_entry_is_written_read_back_and_removed() {
+            const TEST_VALUE: &str = "AetherHubTestWriteReadRemove";
             registry::set(TEST_VALUE, false, &exe()).unwrap(); // start clean
             assert_eq!(registry::get(TEST_VALUE), None);
             registry::set(TEST_VALUE, true, &exe()).unwrap();
@@ -78,10 +80,12 @@ mod tests {
             assert_eq!(registry::get(TEST_VALUE), None);
         }
         #[test] fn switching_off_when_there_is_no_entry_is_not_an_error() {
+            const TEST_VALUE: &str = "AetherHubTestNeverAdded";
             registry::set(TEST_VALUE, false, &exe()).unwrap();
             registry::set(TEST_VALUE, false, &exe()).unwrap();
         }
         #[test] fn only_its_own_value_is_removed() {
+            const TEST_VALUE: &str = "AetherHubTestOwnValue";
             const OTHER: &str = "AetherHubTestNeighbour";
             registry::set(OTHER, true, &exe()).unwrap(); registry::set(TEST_VALUE, true, &exe()).unwrap();
             registry::set(TEST_VALUE, false, &exe()).unwrap();
