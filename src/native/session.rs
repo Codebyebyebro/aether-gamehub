@@ -23,8 +23,14 @@ pub struct SessionEvent { pub id: String, pub title: String, pub started_at: u64
 #[serde(rename_all = "camelCase")]
 pub struct PlaytimeEvent { pub id: String, pub seconds: u64, pub last_played: u64 }
 
-struct Live { id: String, title: String, started_at: u64, last_seen: u64 }
+struct Live { id: String, title: String, started_at: u64, last_seen: u64, watch: Watch }
 static LIVE: Mutex<Vec<Live>> = Mutex::new(Vec::new());
+/// Sessions the player closed from the quick menu: their tracker stops at its next poll instead of waiting out the grace period.
+static ENDING: Mutex<Vec<String>> = Mutex::new(Vec::new());
+/// The game being played right now (the most recently started one), for the quick menu.
+pub fn current() -> Option<SessionEvent> {
+    LIVE.lock().ok()?.last().map(|l| SessionEvent { id: l.id.clone(), title: l.title.clone(), started_at: l.started_at })
+}
 /// True while any game launched from Aether Hub is still running. A controller that connects then belongs to that game.
 pub fn any_running() -> bool { LIVE.lock().map(|live| !live.is_empty()).unwrap_or(false) }
 
@@ -101,6 +107,37 @@ impl Probe {
             Watch::Nothing => false,
         }
     }
+    /// The processes this probe follows right now (never Aether Hub itself).
+    fn matching(&mut self) -> Vec<Pid> {
+        let Some(system) = self.system.as_mut() else { return vec![]; };
+        system.refresh_processes_specifics(ProcessesToUpdate::All, true, ProcessRefreshKind::nothing().with_exe(UpdateKind::OnlyIfNotSet));
+        let own = std::process::id();
+        system.processes().iter().filter(|(pid, p)| pid.as_u32() != own && match &self.watch {
+            Watch::Pid(main, dir) => pid.as_u32() == *main || dir.as_deref().is_some_and(|d| p.exe().is_some_and(|exe| util::path_starts_with(exe, d))),
+            Watch::Dir(dir) => p.exe().is_some_and(|exe| util::path_starts_with(exe, dir)),
+            Watch::Names(names) => names.iter().any(|n| p.name().to_string_lossy().eq_ignore_ascii_case(n)),
+            Watch::Nothing => false,
+        }).map(|(pid, _)| *pid).collect()
+    }
+    /// Ends every process this probe follows. Returns how many were asked to stop.
+    pub fn kill(&mut self) -> usize {
+        let pids = self.matching();
+        let Some(system) = self.system.as_ref() else { return 0; };
+        pids.iter().filter(|pid| system.process(**pid).is_some_and(|p| p.kill())).count()
+    }
+}
+
+/// "Close game" from the quick menu: ends the processes this session follows (only those, never the store client or
+/// anything outside the game's own folder) and lets its tracker finish at once. Returns the game's title.
+pub fn close(id: &str) -> Result<String, String> {
+    let (title, watch) = LIVE.lock().map_err(|_| "Sessions are unavailable")?.iter().find(|l| l.id == id).map(|l| (l.title.clone(), l.watch.clone())).ok_or("That game is no longer running")?;
+    let stopped = Probe::new(watch).kill();
+    if stopped == 0 { return Err(format!("{title} could not be closed from here. Close it from inside the game.")); }
+    if let Ok(mut ending) = ENDING.lock() { if !ending.iter().any(|e| e == id) { ending.push(id.to_owned()); } }
+    Ok(title)
+}
+fn take_ending(id: &str) -> bool {
+    ENDING.lock().map(|mut e| { let had = e.iter().any(|x| x == id); e.retain(|x| x != id); had }).unwrap_or(false)
 }
 
 /// Begin following a game that was just handed off. Returns immediately; the work happens on its own thread.
@@ -111,6 +148,7 @@ pub fn start(app: AppHandle, game: Game, handoff: Handoff, settings: &Settings) 
 fn track(app: AppHandle, game: Game, handoff: Handoff) {
     let watch = target_for(&game, &handoff);
     if watch == Watch::Nothing { return; }
+    let followed = watch.clone();
     let budget = if matches!(watch, Watch::Pid(..)) { DIRECT_START_POLLS } else { STORE_START_POLLS };
     let mut probe = Probe::new(watch);
     for attempt in 0.. {
@@ -119,19 +157,20 @@ fn track(app: AppHandle, game: Game, handoff: Handoff) {
         thread::sleep(FAST_POLL);
     }
     let started_at = util::now_secs();
-    begin(&app, &game, started_at);
+    begin(&app, &game, started_at, followed);
     let (mut last_seen, mut misses) = (started_at, 0);
     loop {
         thread::sleep(POLL);
+        if take_ending(&game.id) { break; }
         if probe.running() { last_seen = util::now_secs(); misses = 0; touch(&game.id, last_seen); }
         else { misses += 1; if misses >= GRACE_POLLS { break; } }
     }
     finish(&app, &game.id, last_seen);
 }
-fn begin(app: &AppHandle, game: &Game, started_at: u64) {
+fn begin(app: &AppHandle, game: &Game, started_at: u64, watch: Watch) {
     if let Ok(mut live) = LIVE.lock() {
         live.retain(|l| l.id != game.id);
-        live.push(Live { id: game.id.clone(), title: game.title.clone(), started_at, last_seen: started_at });
+        live.push(Live { id: game.id.clone(), title: game.title.clone(), started_at, last_seen: started_at, watch });
     }
     discord::show(&game.title, started_at);
     let _ = app.emit("aether:session-started", SessionEvent { id: game.id.clone(), title: game.title.clone(), started_at });
@@ -203,6 +242,28 @@ mod tests {
         assert!(probe.running());
         stop(child, dir);
         assert!(!probe.running());
+    }
+    #[test] fn close_game_ends_only_the_followed_processes_and_finishes_the_session_at_once() {
+        let (dir, mut child) = game("close");
+        let (other_dir, other) = game("bystander");
+        let id = format!("close-{}", uuid::Uuid::new_v4());
+        LIVE.lock().unwrap().push(Live { id: id.clone(), title: "Closable".into(), started_at: 1, last_seen: 1, watch: Watch::Dir(dir.clone()) });
+        assert_eq!(close(&id).unwrap(), "Closable");
+        assert!(child.wait().is_ok(), "the game's process ended");
+        assert!(!Probe::new(Watch::Dir(dir.clone())).running());
+        assert!(Probe::new(Watch::Dir(other_dir.clone())).running(), "a process outside the game's folder is untouched");
+        assert!(take_ending(&id), "its tracker is told to finish at the next poll");
+        assert!(!take_ending(&id), "only once");
+        LIVE.lock().unwrap().retain(|l| l.id != id);
+        assert!(close(&id).is_err(), "a game that is not running cannot be closed");
+        stop(other, other_dir); let _ = fs::remove_dir_all(dir);
+    }
+    #[test] fn close_game_says_so_when_nothing_could_be_closed() {
+        let id = format!("nothing-{}", uuid::Uuid::new_v4());
+        LIVE.lock().unwrap().push(Live { id: id.clone(), title: "Ghost".into(), started_at: 1, last_seen: 1, watch: Watch::Names(vec!["no-such-process-aether.exe".into()]) });
+        assert!(close(&id).unwrap_err().contains("Ghost"));
+        assert!(!take_ending(&id));
+        LIVE.lock().unwrap().retain(|l| l.id != id);
     }
     #[test] fn process_names_are_matched_without_regard_to_case() {
         let (dir, child) = game("name");

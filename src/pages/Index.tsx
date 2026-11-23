@@ -5,9 +5,13 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/compone
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
-import { Game, Settings, Library as LibraryData, View, PlaytimeStore, PlaytimeEvent, SessionEvent, Restored, emptyPlaytime, defaults, desktop, loadLibrary, saveLibrary, launchGame, exportShortcuts, imageUrl, gameIdentity, loadPlaytime, startupNotice, listenDesktop, takeWakeRequest, checkForUpdate, openReleasesPage, missingGames, controllerConnected } from "@/lib/aether";
+import { Game, Settings, Library as LibraryData, View, PlaytimeStore, PlaytimeEvent, SessionEvent, Restored, emptyPlaytime, defaults, desktop, loadLibrary, saveLibrary, launchGame, exportShortcuts, imageUrl, gameIdentity, loadPlaytime, startupNotice, listenDesktop, takeWakeRequest, checkForUpdate, openReleasesPage, missingGames, controllerConnected, powerAction, quitApp, closeGame, currentGame } from "@/lib/aether";
 import { AbsentMap, absenceNotice, countMissing, sameAbsent, targetKey, toAbsentMap } from "@/lib/absent";
-import { useController } from "@/hooks/useController";
+import { useController, setPadFallback } from "@/hooks/useController";
+import ConsoleMenu from "@/components/aether/ConsoleMenu";
+import QuickMenu from "@/components/aether/QuickMenu";
+import { POWER_ITEMS, nativeAction, type PowerChoice, type QuickChoice } from "@/lib/power";
+import { rumble, windowPads } from "@/lib/rumble";
 import { moveFocus, activate, dismiss, switchTab, overlayOpen } from "@/lib/spatialNav";
 import { setCueEnabled, warmCue } from "@/lib/cue";
 import PadHints from "@/components/aether/PadHints";
@@ -24,7 +28,7 @@ import OnScreenKeyboard from "@/components/aether/OnScreenKeyboard";
 import { Artwork, GameGrid, AbsentBadge, RecentRow } from "@/components/aether/GameViews";
 import ConsoleHome from "@/components/aether/ConsoleHome";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { playBootChime } from "@/lib/cue";
+import { playBootChime, playLaunchCue } from "@/lib/cue";
 
 const platforms = ["All", "Steam", "Epic", "Riot", "Custom"] as const;
 const viewOptions: { id: View; icon: typeof LayoutGrid; name: string }[] = [{ id: "poster", icon: LayoutGrid, name: "Poster grid" }, { id: "banner", icon: GalleryHorizontalEnd, name: "Wide banners" }, { id: "list", icon: List, name: "Compact list" }, { id: "carousel", icon: MonitorPlay, name: "Big Box" }];
@@ -43,6 +47,8 @@ export default function Index() {
   const [firstRun, setFirstRun] = useState(false);
   /** Console mode's start-up splash, and whether the start-up controller check has run (it runs once). */
   const [booting, setBooting] = useState(false); const bootChecked = useRef(false);
+  /** The power menu (Options) and the quick menu over a running game (PS button); `menuBusy` while a choice is being carried out. */
+  const [powerOpen, setPowerOpen] = useState(false); const [quick, setQuick] = useState<SessionEvent | null>(null); const [menuBusy, setMenuBusy] = useState(false);
   const [absent, setAbsent] = useState<AbsentMap>({}); const absentNow = useRef<AbsentMap>({}); const absentRun = useRef(0); const absentAt = useRef(0);
   const [playtime, setPlaytime] = useState<PlaytimeStore>(emptyPlaytime); const [nowPlaying, setNowPlaying] = useState<{ id: string; title: string } | null>(null);
   useEffect(() => { let alive = true; loadLibrary().then(d => { if (alive) { latest.current = d; setData(d); setLoaded(true); if (desktop && !d.settings.onboarded) { setFirstRun(true); setSettingsOpen(true); } } }).catch(e => alive && setLoadError(String(e))); return () => { alive = false; }; }, []);
@@ -58,6 +64,8 @@ export default function Index() {
       listenDesktop<PlaytimeEvent>("aether:playtime", e => setPlaytime(p => ({ ...p, games: { ...p.games, [e.id]: { seconds: e.seconds, lastPlayed: e.lastPlayed } } }))),
       listenDesktop("aether:playtime-reload", () => { refreshPlaytime(); }),
       listenDesktop<SessionEvent>("aether:session-started", e => setNowPlaying({ id: e.id, title: e.title })),
+      listenDesktop<SessionEvent>("aether:quick-menu", e => { setPowerOpen(false); setQuick(e); }),
+      listenDesktop<SessionEvent>("aether:session-ended", e => setQuick(q => q?.id === e.id ? null : q)),
       listenDesktop<SessionEvent>("aether:session-ended", e => setNowPlaying(current => current?.id === e.id ? null : current)),
     ];
     return () => { subscriptions.forEach(subscription => subscription.then(off => off()).catch(() => {})); };
@@ -104,7 +112,7 @@ export default function Index() {
   async function saveGame(game: Game) { const games = latest.current.games; const duplicate = games.find(g => g.id !== game.id && gameIdentity(g) === gameIdentity(game)); if (duplicate) throw new Error(`This launch target and arguments are already in your library as ${duplicate.title}.`); await persist({ ...latest.current, games: games.some(g => g.id === game.id) ? games.map(g => g.id === game.id ? game : g) : [...games, game] }); toast.success(editor === "new" ? "Game added to your library" : "Changes saved"); }
   async function favorite(game: Game) { try { await persist({ ...latest.current, games: latest.current.games.map(g => g.id === game.id ? { ...g, favorite: !g.favorite } : g) }); if (detail?.id === game.id) setDetail({ ...game, favorite: !game.favorite }); } catch(e) { toast.error(String(e)); } }
   /** A game flagged as gone is looked for again first: the file may have been put back, or the drive plugged in, since. */
-  async function launch(game: Game) { if (launching) return; setLaunching(game.id); try { if (absentNow.current[game.id]) { const why = (await checkAbsent())[game.id]; if (why) { const bigBox = settings.view === "carousel"; toast.error(absenceNotice(game.title, why, bigBox)); if (why === "file" && !bigBox) { setDetail(null); setEditor(game); } return; } } clearTimeout(settingsTimer.current); await persist(latest.current); await launchGame(game.id); toast.success(`Launch handed off to ${game.title}`); } catch(e) { toast.error(String(e)); } finally { setLaunching(null); } }
+  async function launch(game: Game) { if (launching) return; setLaunching(game.id); try { if (absentNow.current[game.id]) { const why = (await checkAbsent())[game.id]; if (why) { const bigBox = settings.view === "carousel"; toast.error(absenceNotice(game.title, why, bigBox)); if (why === "file" && !bigBox) { setDetail(null); setEditor(game); } return; } } clearTimeout(settingsTimer.current); await persist(latest.current); await launchGame(game.id); toast.success(`Launch handed off to ${game.title}`); if (document.documentElement.dataset.input === "pad") { playLaunchCue(); if (latest.current.settings.rumble) rumble(windowPads()); } } catch(e) { toast.error(String(e)); } finally { setLaunching(null); } }
   async function exportAll() { setExporting(true); try { clearTimeout(settingsTimer.current); await persist(latest.current); const count = await exportShortcuts(); if (count !== null) toast.success(`Created ${count} Windows shortcut${count === 1 ? "" : "s"}. Existing files were left untouched.`); } catch(e) { toast.error(String(e)); } finally { setExporting(false); } }
   async function importGames(games: Game[]) { const seen = new Set(latest.current.games.map(gameIdentity)); const incoming = games.filter(g => { const id = gameIdentity(g); if (seen.has(id)) return false; seen.add(id); return true; }); await persist({ ...latest.current, games: [...latest.current.games, ...incoming] }); toast.success(`${incoming.length} games added to your library`); if (desktop && incoming.some(needsArtwork)) setTimeout(() => setArtFinder({ afterScan: true }), 200); }
   /** Puts found covers on games that still have none (a cover chosen meanwhile is kept) and saves once. */
@@ -126,6 +134,45 @@ export default function Index() {
   useEffect(() => { if (living && loaded) prefetchColors(spotGames.current); }, [living, loaded, spotKey]); const favoriteCount = data.games.filter(g => g.favorite).length;
   const actions = { launch, edit: (g: Game) => { setDetail(null); setEditor(g); }, remove: (g: Game) => setDeleting(g), favorite, detail: (g: Game) => setDetail(g) };
   const closeCarousel = useCallback(() => update({ view: "poster" }), [update]);
+  /** The power menu's choices. "Exit to desktop" leaves Big Box and minimizes; the PC actions go to the program. */
+  async function choosePower(choice: PowerChoice) {
+    const pc = nativeAction(choice);
+    if (!pc) {
+      setPowerOpen(false);
+      if (choice === "quit") { await flush().catch(() => {}); quitApp().catch(e => toast.error(String(e))); return; }
+      if (settings.view === "carousel") closeCarousel();
+      if (desktop) getCurrentWindow().minimize().catch(() => {});
+      return;
+    }
+    setMenuBusy(true);
+    try { await flush().catch(() => {}); await powerAction(pc); setPowerOpen(false); }
+    catch (e) { toast.error(String(e)); }
+    finally { setMenuBusy(false); }
+  }
+  /** The quick menu's choices while a game is running. */
+  async function chooseQuick(choice: QuickChoice) {
+    const game = quick; if (!game) return;
+    if (choice === "resume") { setQuick(null); if (desktop) getCurrentWindow().minimize().catch(() => {}); return; }
+    if (choice === "power") { setQuick(null); setPowerOpen(true); return; }
+    if (choice === "home") { setQuick(null); update({ view: "carousel" }); return; }
+    setMenuBusy(true);
+    try { const title = await closeGame(game.id); setQuick(null); toast.success(`${title} was closed`); update({ view: "carousel" }); }
+    catch (e) { toast.error(String(e)); }
+    finally { setMenuBusy(false); }
+  }
+  // Options and the PS button, wherever no screen on top uses them: Options opens the power menu; PS opens the quick
+  // menu while a game runs, and otherwise goes to Big Box.
+  const homeRef = useRef<() => void>(() => {});
+  homeRef.current = () => {
+    if (quick) { void chooseQuick("resume"); return; }
+    if (nowPlaying) { currentGame().then(g => g && setQuick(g)).catch(() => {}); return; }
+    if (latest.current.settings.view !== "carousel") update({ view: "carousel" });
+  };
+  useEffect(() => {
+    setPadFallback("menu", () => { setQuick(null); setPowerOpen(true); });
+    setPadFallback("home", () => homeRef.current());
+    return () => { setPadFallback("menu", null); setPadFallback("home", null); };
+  }, []);
   // Console mode: started with a controller connected (and not quietly into the tray, and not on first run), open
   // Big Box with a short splash and chime, like a console starting up.
   useEffect(() => {
@@ -182,6 +229,8 @@ export default function Index() {
     <Customize open={drawer} onOpenChange={setDrawer} settings={settings} update={update} />
     {editor && <GameEditor notFound={editor !== "new" && absent[editor.id] === "file"} game={editor === "new" ? undefined : editor} playtime={editor === "new" ? undefined : playtime.games[editor.id]} close={() => setEditor(null)} save={saveGame} />}
     {settingsOpen && <SettingsDialog settings={settings} update={update} firstRun={firstRun} playtime={playtime} flush={flush} applyRestore={applyRestore} refreshPlaytime={refreshPlaytime} close={() => { setSettingsOpen(false); setFirstRun(false); }} />}
+    {powerOpen && <ConsoleMenu label="Power" heading="Power" sub="Choose with ▲ ▼ and ✕" items={POWER_ITEMS} busy={menuBusy} choose={id => void choosePower(id as PowerChoice)} close={() => setPowerOpen(false)} />}
+    {quick && !powerOpen && <QuickMenu game={quick} busy={menuBusy} choose={c => void chooseQuick(c)} close={() => setQuick(null)} />}
     {booting && <div className="boot-splash" aria-hidden><img src="/aether-mark.svg" alt="" /><span>Aether Hub</span></div>}
     {artFinder && <ArtworkFinder games={data.games.filter(needsArtwork)} afterScan={artFinder.afterScan} close={() => setArtFinder(null)} apply={applyFoundArtwork} />}
     {scanOpen && <ScanDialog existing={data.games} folders={settings.folders} close={() => setScanOpen(false)} importGames={importGames} />}

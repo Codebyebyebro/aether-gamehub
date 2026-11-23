@@ -118,3 +118,14 @@ test("the first push of a diagonal picks the larger axis, and a later release fo
   assert.deepEqual(m.step(40, stick(0, 0)), []);
   assert.deepEqual(m.step(80, stick(0.8, 0.65)), ["right"], "the previous axis is not remembered across a release");
 });
+
+test("Options opens the menu and the PS button is home, once per press", () => {
+  assert.deepEqual([BUTTON.options, BUTTON.ps], [9, 16]);
+  for (const [button, action] of [[BUTTON.options, "menu"], [BUTTON.ps, "home"]] as const) {
+    const m = new PadMachine(DEFAULT_TIMING); const buttons = Array(17).fill(false);
+    assert.deepEqual(m.step(0, { buttons, axes: [0, 0] }), []);
+    buttons[button] = true;
+    assert.deepEqual(m.step(100, { buttons, axes: [0, 0] }), [action]);
+    assert.deepEqual(m.step(1000, { buttons, axes: [0, 0] }), [], "held does not repeat");
+  }
+});
