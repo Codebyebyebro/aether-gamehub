@@ -45,6 +45,13 @@ impl Arrivals {
     }
 }
 
+/// Console mode, "back home after playing": whether a game that just ended should bring the launcher back in Big Box.
+/// Only with the setting on, no other game still running, and a controller connected. The controller is checked last,
+/// because asking Windows can take a moment.
+pub fn return_home(console_mode: bool, others_running: bool, pad_connected: impl FnOnce() -> bool) -> bool {
+    console_mode && !others_running && pad_connected()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -101,5 +108,13 @@ mod tests {
     }
     #[test] fn the_real_timings_are_a_few_seconds_to_settle_and_a_quiet_period_longer_than_that() {
         assert!(WARMUP >= s(2) && WARMUP <= s(10) && COOLDOWN > WARMUP);
+    }
+    #[test] fn back_home_only_with_the_setting_a_controller_and_nothing_else_running() {
+        assert!(super::return_home(true, false, || true));
+        assert!(!super::return_home(false, false, || true), "setting off");
+        assert!(!super::return_home(true, true, || true), "another game is still running");
+        assert!(!super::return_home(true, false, || false), "no controller: the desktop experience is unchanged");
+        assert!(!super::return_home(false, false, || panic!("Windows is not asked when the setting is off")));
+        assert!(!super::return_home(true, true, || panic!("Windows is not asked while another game runs")));
     }
 }

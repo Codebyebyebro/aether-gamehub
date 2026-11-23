@@ -1,14 +1,10 @@
 import { useEffect, useState } from "react";
-import { Play, Heart, MoreHorizontal, Pencil, Trash2, ChevronLeft, ChevronRight, Minimize2, Gamepad2 } from "lucide-react";
+import { Play, Heart, MoreHorizontal, Pencil, Trash2, Gamepad2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Game, Settings, PlaytimeEntry, imageUrl, steamImage, desktop } from "@/lib/aether";
 import { agoWords } from "@/lib/recent";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { toast } from "sonner";
 import { invoke } from "@tauri-apps/api/core";
-import { useController } from "@/hooks/useController";
-import PadHints from "@/components/aether/PadHints";
 import type { Absence, AbsentMap } from "@/lib/absent";
 
 export function Artwork({ game, banner = false, performance = false, className = "" }: { game: Game; banner?: boolean; performance?: boolean; className?: string }) {
@@ -25,7 +21,7 @@ export function AbsentBadge({ reason, className = "" }: { reason?: Absence; clas
   if (!reason) return null;
   return <span className={`inline-block rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold leading-tight text-slate-950 ${className}`}>{reason === "drive" ? "Drive not connected" : "Missing"}</span>;
 }
-interface Actions { launch: (g: Game) => void; edit: (g: Game) => void; remove: (g: Game) => void; favorite: (g: Game) => void; detail: (g: Game) => void }
+export interface Actions { launch: (g: Game) => void; edit: (g: Game) => void; remove: (g: Game) => void; favorite: (g: Game) => void; detail: (g: Game) => void }
 export function GameMenu({ game, actions }: { game: Game; actions: Actions }) {
   return <DropdownMenu><DropdownMenuTrigger asChild><button data-pad-skip className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted" aria-label={`Manage ${game.title}`} onClick={e => e.stopPropagation()}><MoreHorizontal size={17} /></button></DropdownMenuTrigger><DropdownMenuContent align="end" className="rounded-xl p-1.5"><DropdownMenuItem className="rounded-lg text-xs" onClick={() => actions.launch(game)}><Play size={14} className="mr-2" />Launch game</DropdownMenuItem><DropdownMenuItem className="rounded-lg text-xs" onClick={() => actions.favorite(game)}><Heart size={14} className="mr-2" />{game.favorite ? "Remove favorite" : "Favorite"}</DropdownMenuItem><DropdownMenuItem className="rounded-lg text-xs" onClick={() => actions.edit(game)}><Pencil size={14} className="mr-2" />Edit game</DropdownMenuItem><DropdownMenuItem className="rounded-lg text-xs text-destructive focus:text-destructive" onClick={() => actions.remove(game)}><Trash2 size={14} className="mr-2" />Remove from library</DropdownMenuItem></DropdownMenuContent></DropdownMenu>;
 }
@@ -48,43 +44,3 @@ export function RecentRow({ games, times, actions, performance }: { games: Game[
 }
 /** The platform filter shared with the main library, so L1/R1 and the pills here change what the page shows too. */
 export interface Category { options: readonly string[]; value: string; set: (value: string) => void }
-/** `onCurrent` hears which game is selected, so the rest of the app (Living colors) can follow it. */
-export function Carousel({ games, settings, actions, close, category, absent = {}, onCurrent }: { games: Game[]; settings: Settings; actions: Actions; close: () => void; category: Category; absent?: AbsentMap; onCurrent?: (game: Game | undefined) => void }) {
-  const [index, setIndex] = useState(0);
-  const current = games[index % Math.max(1, games.length)];
-  useEffect(() => { onCurrent?.(current); }, [current, onCurrent]);
-  useEffect(() => () => onCurrent?.(undefined), [onCurrent]);
-  function move(n: number) { setIndex(i => (i + n + games.length) % Math.max(1, games.length)); }
-  function cycle(n: number) { category.set(category.options[(category.options.indexOf(category.value) + n + category.options.length) % category.options.length]); }
-  useEffect(() => setIndex(0), [category.value]);
-  // This layer sits on top of the page's own controller handling for as long as Big Box is open.
-  const pad = useController({ left: () => move(-1), right: () => move(1), confirm: () => { if (current) actions.launch(current); }, back: close, prevTab: () => cycle(-1), nextTab: () => cycle(1) });
-  useEffect(() => { if (desktop) getCurrentWindow().setFullscreen(true).catch(e => toast.error(String(e))); return () => { if (desktop) getCurrentWindow().setFullscreen(false).catch(() => {}); }; }, []);
-  useEffect(() => {
-    const previous = document.activeElement as HTMLElement;
-    const root = document.querySelector<HTMLElement>('[aria-label="Big Box library"]');
-    root?.setAttribute("tabindex", "-1"); root?.focus();
-    return () => previous?.focus();
-  }, []);
-  useEffect(() => {
-    const key = (e: KeyboardEvent) => {
-      if (["Escape", "ArrowRight", "ArrowLeft"].includes(e.key)) e.preventDefault();
-      if (e.key === "Escape") close();
-      if (e.key === "ArrowRight") move(1);
-      if (e.key === "ArrowLeft") move(-1);
-      if (e.key === "Enter" && current && !(e.target as HTMLElement).closest("button")) { e.preventDefault(); if (!e.repeat) actions.launch(current); }
-      if (e.key === "Tab") {
-        const root = document.querySelector<HTMLElement>('[aria-label="Big Box library"]');
-        const buttons = root?.querySelectorAll<HTMLButtonElement>("button:not([disabled])");
-        if (!buttons?.length) return;
-        const first = buttons[0], last = buttons[buttons.length - 1];
-        if (!root.contains(document.activeElement) || document.activeElement === root) { e.preventDefault(); (e.shiftKey ? last : first).focus(); }
-        else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
-      }
-    };
-    window.addEventListener("keydown", key);
-    return () => window.removeEventListener("keydown", key);
-  }, [current, games, close, actions]);
-  return <div role="dialog" aria-modal="true" aria-label="Big Box library" className="bigbox-bg fixed inset-0 z-40 flex flex-col overflow-hidden text-white">{current && settings.livingColors && !settings.performance && <div key={current.id} className="bigbox-backdrop" aria-hidden><Artwork game={current} banner /></div>}<header className="relative z-10 flex items-center justify-between gap-4 p-6"><div className="flex items-center gap-3"><img src="/aether-mark.svg" className="h-9 w-9" alt="" /><span className="display-font font-bold">Aether Hub <span className="ml-3 text-xs font-normal text-white/60">Big Box</span></span></div><div role="group" aria-label="Category" className="flex flex-wrap items-center justify-center gap-1.5">{pad.connected && <kbd className="pad-key">L1</kbd>}{category.options.map(option => <button key={option} aria-pressed={category.value === option} onClick={() => category.set(option)} className={`h-8 rounded-full px-4 text-[11px] font-semibold ${category.value === option ? "bg-white text-[#131a2c]" : "bg-white/10 text-white/70 hover:bg-white/20"}`}>{option === "All" ? "All games" : option === "Custom" ? "Local" : option}</button>)}{pad.connected && <kbd className="pad-key">R1</kbd>}</div><Button variant="ghost" className="rounded-xl text-white hover:bg-white/10 hover:text-white" onClick={close}><Minimize2 size={16} className="mr-2" />Exit fullscreen</Button></header>{current ? <main className="relative z-10 flex min-h-0 flex-1 flex-col items-center justify-center px-4"><div className="flex w-full max-w-5xl items-center gap-4"><button aria-label="Previous game" className="rounded-full bg-white/10 p-3 hover:bg-white/20" onClick={() => move(-1)}><ChevronLeft /></button><button className="aspect-[16/8] min-w-0 flex-1 overflow-hidden rounded-3xl shadow-2xl" onClick={() => actions.launch(current)}><Artwork game={current} banner performance={settings.performance} /></button><button aria-label="Next game" className="rounded-full bg-white/10 p-3 hover:bg-white/20" onClick={() => move(1)}><ChevronRight /></button></div><h1 className="mt-7 text-center text-3xl font-extrabold md:text-4xl">{current.title}</h1><AbsentBadge reason={absent[current.id]} className="mt-3" /><Button className="aether-primary mt-5 h-11 gap-2 px-8" onClick={() => actions.launch(current)}><Play size={16} fill="currentColor" />Play game</Button><div className="mt-6 flex gap-3">{[-1,0,1].map(n => { const g = games[(index + n + games.length) % games.length]; return <button key={n} aria-label={g.title} onClick={() => move(n)} className={`h-16 w-28 overflow-hidden rounded-lg border-2 ${n === 0 ? "border-white" : "border-transparent opacity-40"}`}><Artwork game={g} banner performance={settings.performance} /></button>; })}</div></main> : <div className="flex flex-1 items-center justify-center text-white/70">No games match your filters.</div>}<footer className="relative z-10 flex justify-center gap-8 p-5 text-[11px] text-white/50">{pad.connected ? <PadHints items={[["D-pad", "Browse"], ["✕", "Play"], ["○", "Exit"], ["L1 R1", "Category"]]} /> : <><span>← → Browse</span><span>Enter Play</span><span>Esc Exit</span></>}<span>{games.length ? index % games.length + 1 : 0} / {games.length}</span></footer></div>;
-}

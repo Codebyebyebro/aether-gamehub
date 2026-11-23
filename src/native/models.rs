@@ -58,6 +58,9 @@ pub struct Settings {
     pub check_updates: bool,
     /// "Living colors": the interface takes on the colours of the game in focus. On by default; Performance mode turns it off.
     pub living_colors: bool,
+    /// Console mode: with a controller connected, Aether Hub starts in Big Box and comes back to Big Box when a game
+    /// ends. Nothing changes when no controller is connected. On by default.
+    pub console_mode: bool,
 }
 impl Default for Settings {
     fn default() -> Self { Self { theme: "cream".into(), accent: "#5b4bd6".into(), view: "poster".into(),
@@ -66,7 +69,7 @@ impl Default for Settings {
         backup_enabled: true, backup_dir: String::new(), backup_keep: 10,
         discord_enabled: false, discord_app_id: String::new(),
         steam_sync_enabled: false, steam_profile: String::new(), steam_api_key: String::new(), steam_sync_hours: 6,
-        keep_in_tray: false, shortcut: false, start_with_windows: false, pad_wake: false, check_updates: false, living_colors: true } }
+        keep_in_tray: false, shortcut: false, start_with_windows: false, pad_wake: false, check_updates: false, living_colors: true, console_mode: true } }
 }
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Library { pub games: Vec<Game>, pub settings: Settings }
@@ -139,6 +142,11 @@ mod tests {
         assert!(old.living_colors);
         assert!(serde_json::to_string(&Settings::default()).unwrap().contains(r#""livingColors":true"#));
         assert!(!serde_json::from_str::<Settings>(r#"{"livingColors":false}"#).unwrap().living_colors);
+    }
+    #[test] fn console_mode_is_on_for_libraries_saved_before_it_existed() {
+        assert!(serde_json::from_str::<Settings>(r#"{"theme":"navy"}"#).unwrap().console_mode);
+        assert!(serde_json::to_string(&Settings::default()).unwrap().contains(r#""consoleMode":true"#));
+        assert!(!serde_json::from_str::<Settings>(r#"{"consoleMode":false}"#).unwrap().console_mode);
     }
     #[test] fn background_settings_use_their_camel_case_names() {
         let json = serde_json::to_string(&Settings::default()).unwrap();

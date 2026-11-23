@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/compone
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
-import { Game, Settings, Library as LibraryData, View, PlaytimeStore, PlaytimeEvent, SessionEvent, Restored, emptyPlaytime, defaults, desktop, loadLibrary, saveLibrary, launchGame, exportShortcuts, imageUrl, gameIdentity, loadPlaytime, startupNotice, listenDesktop, takeWakeRequest, checkForUpdate, openReleasesPage, missingGames } from "@/lib/aether";
+import { Game, Settings, Library as LibraryData, View, PlaytimeStore, PlaytimeEvent, SessionEvent, Restored, emptyPlaytime, defaults, desktop, loadLibrary, saveLibrary, launchGame, exportShortcuts, imageUrl, gameIdentity, loadPlaytime, startupNotice, listenDesktop, takeWakeRequest, checkForUpdate, openReleasesPage, missingGames, controllerConnected } from "@/lib/aether";
 import { AbsentMap, absenceNotice, countMissing, sameAbsent, targetKey, toAbsentMap } from "@/lib/absent";
 import { useController } from "@/hooks/useController";
 import { moveFocus, activate, dismiss, switchTab, overlayOpen } from "@/lib/spatialNav";
@@ -21,7 +21,10 @@ import { tintTarget } from "@/lib/tint";
 import { useLivingColors, prefetchColors } from "@/hooks/useLivingColors";
 import { Sort, sortGames, sortLabels, recentlyPlayed, spotlight, spotlightLabel, playedLine } from "@/lib/recent";
 import OnScreenKeyboard from "@/components/aether/OnScreenKeyboard";
-import { Artwork, GameGrid, Carousel, AbsentBadge, RecentRow } from "@/components/aether/GameViews";
+import { Artwork, GameGrid, AbsentBadge, RecentRow } from "@/components/aether/GameViews";
+import ConsoleHome from "@/components/aether/ConsoleHome";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { playBootChime } from "@/lib/cue";
 
 const platforms = ["All", "Steam", "Epic", "Riot", "Custom"] as const;
 const viewOptions: { id: View; icon: typeof LayoutGrid; name: string }[] = [{ id: "poster", icon: LayoutGrid, name: "Poster grid" }, { id: "banner", icon: GalleryHorizontalEnd, name: "Wide banners" }, { id: "list", icon: List, name: "Compact list" }, { id: "carousel", icon: MonitorPlay, name: "Big Box" }];
@@ -38,6 +41,8 @@ export default function Index() {
   /** "Find missing artwork": `afterScan` words it as an offer for the games a scan just added. */
   const [artFinder, setArtFinder] = useState<{ afterScan: boolean } | null>(null);
   const [firstRun, setFirstRun] = useState(false);
+  /** Console mode's start-up splash, and whether the start-up controller check has run (it runs once). */
+  const [booting, setBooting] = useState(false); const bootChecked = useRef(false);
   const [absent, setAbsent] = useState<AbsentMap>({}); const absentNow = useRef<AbsentMap>({}); const absentRun = useRef(0); const absentAt = useRef(0);
   const [playtime, setPlaytime] = useState<PlaytimeStore>(emptyPlaytime); const [nowPlaying, setNowPlaying] = useState<{ id: string; title: string } | null>(null);
   useEffect(() => { let alive = true; loadLibrary().then(d => { if (alive) { latest.current = d; setData(d); setLoaded(true); if (desktop && !d.settings.onboarded) { setFirstRun(true); setSettingsOpen(true); } } }).catch(e => alive && setLoadError(String(e))); return () => { alive = false; }; }, []);
@@ -121,6 +126,22 @@ export default function Index() {
   useEffect(() => { if (living && loaded) prefetchColors(spotGames.current); }, [living, loaded, spotKey]); const favoriteCount = data.games.filter(g => g.favorite).length;
   const actions = { launch, edit: (g: Game) => { setDetail(null); setEditor(g); }, remove: (g: Game) => setDeleting(g), favorite, detail: (g: Game) => setDetail(g) };
   const closeCarousel = useCallback(() => update({ view: "poster" }), [update]);
+  // Console mode: started with a controller connected (and not quietly into the tray, and not on first run), open
+  // Big Box with a short splash and chime, like a console starting up.
+  useEffect(() => {
+    if (!loaded || !desktop || bootChecked.current) return;
+    bootChecked.current = true;
+    const start = latest.current.settings;
+    if (!start.consoleMode || firstRun) return;
+    let live = true;
+    (async () => {
+      if (!(await getCurrentWindow().isVisible().catch(() => true)) || !live) return;
+      if (!(await controllerConnected().catch(() => false)) || !live) return;
+      if (!start.performance) { setBooting(true); setTimeout(() => setBooting(false), 2100); }
+      playBootChime(); update({ view: "carousel" });
+    })();
+    return () => { live = false; };
+  }, [loaded, firstRun, update]);
   function navigate(p: typeof section) { setSection(p); setPlatform("All"); setQuery(""); setMobileNav(false); }
   const cyclePlatform = (delta: number) => setPlatform(p => platforms[(platforms.indexOf(p) + delta + platforms.length) % platforms.length]);
   /** The game whose cover the controller has focused, when no dialog or menu is covering the page. */
@@ -161,9 +182,10 @@ export default function Index() {
     <Customize open={drawer} onOpenChange={setDrawer} settings={settings} update={update} />
     {editor && <GameEditor notFound={editor !== "new" && absent[editor.id] === "file"} game={editor === "new" ? undefined : editor} playtime={editor === "new" ? undefined : playtime.games[editor.id]} close={() => setEditor(null)} save={saveGame} />}
     {settingsOpen && <SettingsDialog settings={settings} update={update} firstRun={firstRun} playtime={playtime} flush={flush} applyRestore={applyRestore} refreshPlaytime={refreshPlaytime} close={() => { setSettingsOpen(false); setFirstRun(false); }} />}
+    {booting && <div className="boot-splash" aria-hidden><img src="/aether-mark.svg" alt="" /><span>Aether Hub</span></div>}
     {artFinder && <ArtworkFinder games={data.games.filter(needsArtwork)} afterScan={artFinder.afterScan} close={() => setArtFinder(null)} apply={applyFoundArtwork} />}
     {scanOpen && <ScanDialog existing={data.games} folders={settings.folders} close={() => setScanOpen(false)} importGames={importGames} />}
-    {settings.view === "carousel" && loaded && <Carousel games={filtered} settings={settings} actions={actions} absent={absent} close={closeCarousel} onCurrent={setBigBoxGame} category={{ options: platforms, value: platform, set: v => setPlatform(v as typeof platform) }} />}
+    {settings.view === "carousel" && loaded && <ConsoleHome games={filtered} times={playtime.games} playingId={nowPlaying?.id} settings={settings} actions={actions} absent={absent} close={closeCarousel} onCurrent={setBigBoxGame} category={{ options: platforms, value: platform, set: v => setPlatform(v as typeof platform) }} />}
     {detail && <Dialog open onOpenChange={v => !v && setDetail(null)}><DialogContent className="overflow-hidden rounded-3xl bg-card p-0 sm:max-w-[720px]"><div className="aspect-video overflow-hidden"><Artwork game={detail} banner performance={settings.performance} /></div><div className="p-6"><DialogTitle className="display-font text-2xl font-extrabold">{detail.title}</DialogTitle><DialogDescription className="sr-only">Launch or manage this game.</DialogDescription><AbsentBadge reason={absent[detail.id]} className="mt-2" /><div className="mt-5 flex flex-wrap gap-2"><Button className="aether-primary gap-2 px-6" disabled={!!launching} onClick={() => launch(detail)}><Play size={15} fill="currentColor" />Play game</Button><Button variant="outline" className="gap-2 rounded-xl" onClick={() => actions.edit(detail)}><Pencil size={14} />Edit</Button><Button variant="outline" className="rounded-xl" aria-label="Toggle favorite" onClick={() => favorite(detail)}><Heart size={16} fill={detail.favorite ? "currentColor" : "none"} /></Button><Button variant="ghost" className="ml-auto rounded-xl text-destructive" aria-label="Remove game" onClick={() => setDeleting(detail)}><Trash2 size={16} /></Button></div></div></DialogContent></Dialog>}
     <AlertDialog open={!!deleting} onOpenChange={v => !v && setDeleting(null)}><AlertDialogContent className="rounded-3xl bg-card"><AlertDialogHeader><AlertDialogTitle>Remove {deleting?.title}?</AlertDialogTitle><AlertDialogDescription>This removes the entry from Aether Hub only. Your installed game files are never deleted.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel className="rounded-xl">Keep game</AlertDialogCancel><AlertDialogAction className="rounded-xl bg-destructive hover:bg-destructive/90" onClick={async () => { if (!deleting) return; try { await persist({ ...latest.current, games: latest.current.games.filter(g => g.id !== deleting.id) }); if (detail?.id === deleting.id) setDetail(null); setDeleting(null); toast.success("Game removed from library"); } catch(e) { toast.error(String(e)); } }}>Remove from library</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
     <OnScreenKeyboard />

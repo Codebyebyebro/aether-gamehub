@@ -53,6 +53,16 @@ pub fn request_big_box(app: &AppHandle) {
 }
 pub fn take_wake_request() -> bool { WAKE_PENDING.swap(false, Ordering::SeqCst) }
 
+/// Console mode, "back home after playing": called when a game ends. With a controller connected and no other game
+/// running, the launcher comes forward in Big Box, so quitting a game lands on the library instead of the desktop.
+pub fn after_session(app: &AppHandle) {
+    let console = storage::load().map(|l| l.settings.console_mode).unwrap_or(false);
+    if behavior::return_home(console, session::any_running(), || padwatch::connected(std::time::Duration::from_millis(600))) {
+        diag::event("console", "a game ended; back to Big Box");
+        request_big_box(app);
+    }
+}
+
 fn build_tray(app: &AppHandle) -> Result<(), String> {
     if app.tray_by_id(TRAY_ID).is_some() { return Ok(()); }
     let icon = app.default_window_icon().cloned().ok_or("Aether Hub has no icon to show in the tray.")?;

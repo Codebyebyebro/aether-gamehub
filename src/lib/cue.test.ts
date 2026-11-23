@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { bytesFromBase64, createCueGate, CUE_GAIN, CUE_MIN_GAP_MS, playSelectCue, setCueEnabled, warmCue } from "./cue.ts";
+import { bytesFromBase64, createCueGate, CUE_GAIN, CUE_MIN_GAP_MS, playSelectCue, setCueEnabled, warmCue, BOOT_NOTES, playBootChime } from "./cue.ts";
 import { SELECT_SOUND_BASE64 } from "./selectSound.ts";
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
@@ -80,4 +80,26 @@ test("switching off while the click is still decoding plays nothing and does not
   setCueEnabled(false); (holdDecode as (() => void) | null)?.(); await tick();
   assert.equal(made[0].starts, 0, "the device was closed meanwhile, so the click is dropped instead of throwing");
   hold = false;
+});
+test("the start-up chime rises, overlaps gently and is over in under two seconds", () => {
+  assert.equal(BOOT_NOTES.length, 3);
+  for (let i = 1; i < BOOT_NOTES.length; i++) { assert.ok(BOOT_NOTES[i].hz > BOOT_NOTES[i - 1].hz, "each note is higher"); assert.ok(BOOT_NOTES[i].at > BOOT_NOTES[i - 1].at); }
+  const end = Math.max(...BOOT_NOTES.map(n => n.at + n.length));
+  assert.ok(end < 2, `${end}s`);
+});
+test("the start-up chime plays its three notes, and is silent when sounds are off", async () => {
+  let started = 0; let stopped = 0;
+  class ToneContext extends FakeAudioContext {
+    currentTime = 0;
+    createOscillator() { return { type: "", frequency: { value: 0 }, connect() {}, start() { started++; }, stop() { stopped++; } }; }
+    createGain() { return { gain: { value: 1, setValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect() {} }; }
+  }
+  fresh(); g.AudioContext = ToneContext; setCueEnabled(false); setCueEnabled(true);
+  playBootChime(); await tick();
+  assert.equal(started, 3); assert.equal(stopped, 3);
+  setCueEnabled(false); playBootChime(); await tick();
+  assert.equal(started, 3, "switched off: nothing more plays");
+});
+test("the start-up chime never throws, even on an audio device that cannot make tones", async () => {
+  fresh(); assert.doesNotThrow(() => playBootChime()); await tick();
 });
