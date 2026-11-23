@@ -24,6 +24,7 @@ for public repositories; a private repository would use your plan's allowance in
 ## Things to know
 
 - The tag must look like `v1.2.3`. Pre-releases and drafts are ignored by the update check, so a release marked "pre-release" is a safe way to share a test build.
+- The update check reads GitHub's *latest release*, which is the newest published release that is not a draft or a pre-release. A release made only to hand files over (a zip or a patch, like the earlier `v2` and `v3`) counts too: if one is newer than the real release, the app would offer "version 3.0.0" or whatever its tag says. Mark such hand-off releases as **pre-release** when you create them, or keep them in another repository.
 - The installer is **not code-signed**, so the notes say so. See [Code signing](CODE-SIGNING.md) for the free route and what it needs from you.
 - Publishing makes the installer public. Publish only a build you have tried.
 - To take a bad release back, unpublish or delete it on the Releases page; the update check then falls back to the previous release.
