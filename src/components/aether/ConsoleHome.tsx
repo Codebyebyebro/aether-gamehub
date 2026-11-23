@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Heart, Info, Minimize2, Play, ArrowLeft } from "lucide-react";
+import { Heart, Info, Minimize2, Play, ArrowLeft, Search, Radar, Settings2 } from "lucide-react";
+import { KEYBOARD_EVENT } from "@/lib/spatialNav";
 import { toast } from "sonner";
 import { Game, PlaytimeEntry, Settings, desktop } from "@/lib/aether";
 import { sortGames, playedLine, agoWords } from "@/lib/recent";
@@ -9,7 +10,7 @@ import type { AbsentMap } from "@/lib/absent";
 import { useController } from "@/hooks/useController";
 import { prefetchColors } from "@/hooks/useLivingColors";
 import { playCue } from "@/lib/cue";
-import { HOME_ACTIONS, DETAIL_ACTIONS, rowScroll, type ConsoleAction } from "@/lib/consoleNav";
+import { HOME_ACTIONS, DETAIL_ACTIONS, HEADER_ACTIONS, rowScroll, fullscreenAfterBigBox, searchGames, type ConsoleAction, type HeaderAction } from "@/lib/consoleNav";
 import PadHints from "@/components/aether/PadHints";
 import { Artwork, AbsentBadge, type Actions, type Category } from "@/components/aether/GameViews";
 
@@ -25,16 +26,24 @@ function useClock() {
  * first) runs along the top, and Square opens a full-screen details page. The selection follows the game, not its
  * position, so it stays put when the order changes (for example when a game you just played moves to the front).
  */
-export default function ConsoleHome({ games, times, settings, actions, close, category, absent = {}, playingId, onCurrent }: {
+export default function ConsoleHome({ games, times, settings, actions, close, category, absent = {}, playingId, onCurrent, steppingAside, stayFullscreen, fullscreenBefore, onScan, onSettings }: {
   games: Game[]; times: Record<string, PlaytimeEntry>; settings: Settings; actions: Actions; close: () => void; category: Category;
   absent?: AbsentMap; playingId?: string | null; onCurrent?: (game: Game | undefined) => void;
+  /** Asked as Big Box closes: is it only stepping aside for a dialog, and has the player asked to stay full screen? */
+  steppingAside: () => boolean; stayFullscreen: () => boolean;
+  /** Whether the window was full screen before Big Box first opened; kept by the page across stepping aside. */
+  fullscreenBefore: { current: boolean | null };
+  /** Big Box steps aside for these and comes back when they close. */
+  onScan: () => void; onSettings: () => void;
 }) {
-  const ordered = useMemo(() => sortGames(games, "recent", times), [games, times]);
+  const [query, setQuery] = useState("");
+  const ordered = useMemo(() => searchGames(sortGames(games, "recent", times), query), [games, times, query]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [details, setDetails] = useState(false);
   /** Where the controller is: the row of games, or the buttons under the title (Down goes there, Up comes back). */
-  const [zone, setZone] = useState<"row" | "actions">("row");
+  const [zone, setZone] = useState<"header" | "row" | "actions">("row");
   const [actionIndex, setActionIndex] = useState(0);
+  const [headerIndex, setHeaderIndex] = useState(0);
   const current = ordered.find(g => g.id === selectedId) ?? ordered[0];
   const index = current ? ordered.indexOf(current) : -1;
   const clock = useClock();
@@ -45,13 +54,21 @@ export default function ConsoleHome({ games, times, settings, actions, close, ca
   function cycle(step: number) { category.set(category.options[(category.options.indexOf(category.value) + step + category.options.length) % category.options.length]); }
   function moveAction(step: number) { const next = Math.max(0, Math.min(buttons.length - 1, actionIndex + step)); if (next !== actionIndex) { setActionIndex(next); playCue("move"); } }
   function toActions() { if (zone !== "actions") { setZone("actions"); setActionIndex(0); playCue("move"); } }
-  function toRow() { if (zone !== "row" && !details) { setZone("row"); playCue("move"); } }
+  function toRow() { if (zone !== "row" && !details && ordered.length) { setZone("row"); playCue("move"); } }
+  function toHeader() { if (zone !== "header" && !details) { setZone("header"); setHeaderIndex(0); playCue("move"); } }
+  function moveHeader(step: number) { const next = Math.max(0, Math.min(HEADER_ACTIONS.length - 1, headerIndex + step)); if (next !== headerIndex) { setHeaderIndex(next); playCue("move"); } }
+  const searchField = useRef<HTMLInputElement>(null);
+  function runHeader(action: HeaderAction) {
+    if (action === "search") { const f = searchField.current; if (f) { f.focus(); f.dispatchEvent(new CustomEvent(KEYBOARD_EVENT, { bubbles: true })); } }
+    else if (action === "scan") onScan(); else if (action === "settings") onSettings(); else close();
+  }
   function openDetails(open: boolean) { setDetails(open); setZone(open ? "actions" : "row"); setActionIndex(0); if (open) playCue("open"); }
   const play = () => { if (current) actions.launch(current); };
   const favorite = () => { if (current) { actions.favorite(current); playCue("favorite"); } };
   const run = (action: ConsoleAction) => { if (action === "play") play(); else if (action === "details") openDetails(true); else if (action === "favorite") favorite(); else openDetails(false); };
 
-  useEffect(() => { setSelectedId(null); setDetails(false); setZone("row"); }, [category.value]);
+  useEffect(() => { setSelectedId(null); setDetails(false); setZone(z => z === "header" ? z : "row"); }, [category.value]);
+  useEffect(() => { setSelectedId(null); }, [query]);
   useEffect(() => { onCurrent?.(current); }, [current, onCurrent]);
   useEffect(() => () => onCurrent?.(undefined), [onCurrent]);
   // Neighbours' colours are fetched ahead, so Living colors is ready before the selection gets there.
@@ -65,20 +82,38 @@ export default function ConsoleHome({ games, times, settings, actions, close, ca
   useEffect(() => {
     const root = document.querySelector<HTMLElement>('[aria-label="Big Box library"]');
     if (zone === "actions") root?.querySelector<HTMLElement>(`[data-console-action="${buttons[actionIndex]}"]`)?.focus({ preventScroll: true });
+    else if (zone === "header") { const el = root?.querySelector<HTMLElement>(`[data-console-header="${HEADER_ACTIONS[headerIndex]}"]`); if (el && document.activeElement !== el) el.focus({ preventScroll: true }); }
     else if (root && root.contains(document.activeElement) && document.activeElement !== root) root.focus({ preventScroll: true });
-  }, [zone, actionIndex, details, buttons]);
+  }, [zone, actionIndex, headerIndex, details, buttons]);
 
+  const root = () => document.querySelector<HTMLElement>('[aria-label="Big Box library"]');
   const pad = useController({
-    left: () => { if (zone === "row" && !details) move(-1); else moveAction(-1); },
-    right: () => { if (zone === "row" && !details) move(1); else moveAction(1); },
-    down: () => { if (!details) toActions(); },
-    up: () => toRow(),
-    confirm: () => { if (zone === "row" && !details) play(); else run(buttons[actionIndex]); },
-    details: () => openDetails(!details), secondary: favorite,
-    back: () => { if (details) openDetails(false); else if (zone === "actions") toRow(); else close(); },
+    left: () => { if (zone === "header") moveHeader(-1); else if (zone === "row" && !details) move(-1); else moveAction(-1); },
+    right: () => { if (zone === "header") moveHeader(1); else if (zone === "row" && !details) move(1); else moveAction(1); },
+    down: () => { if (details) return; if (zone === "header") toRow(); else toActions(); },
+    up: () => { if (zone === "actions") toRow(); else if (zone === "row") toHeader(); },
+    confirm: () => { if (zone === "header") runHeader(HEADER_ACTIONS[headerIndex]); else if (!current) return; else if (zone === "row" && !details) play(); else run(buttons[actionIndex]); },
+    details: () => { if (current && zone !== "header") openDetails(!details); }, secondary: () => { if (zone !== "header") favorite(); },
+    back: () => { if (details) openDetails(false); else if (zone === "actions" || (zone === "header" && ordered.length)) toRow(); else close(); },
     prevTab: () => { if (!details) cycle(-1); }, nextTab: () => { if (!details) cycle(1); },
   });
-  useEffect(() => { if (desktop) getCurrentWindow().setFullscreen(true).catch(e => toast.error(String(e))); return () => { if (desktop) getCurrentWindow().setFullscreen(false).catch(() => {}); }; }, []);
+  // Big Box is full screen. On the way out it only leaves full screen if it turned it on itself, the player has not asked
+  // to stay full screen, and it is not just stepping aside for Settings or a scan.
+  const asks = useRef({ steppingAside, stayFullscreen }); asks.current = { steppingAside, stayFullscreen };
+  useEffect(() => {
+    if (!desktop) return;
+    const win = getCurrentWindow();
+    // Coming back from Settings or a scan, the window is still full screen from this Big Box: keep the first answer.
+    const ready: Promise<void> = fullscreenBefore.current !== null ? Promise.resolve()
+      : win.isFullscreen().catch(() => false).then(full => { fullscreenBefore.current = full; });
+    void ready.then(() => win.setFullscreen(true)).catch(e => toast.error(String(e)));
+    return () => { void ready.then(() => {
+      if (asks.current.steppingAside()) return; // full screen stays, and so does what was true before Big Box
+      const keep = fullscreenAfterBigBox(!!fullscreenBefore.current, asks.current.stayFullscreen());
+      fullscreenBefore.current = null;
+      if (!keep) win.setFullscreen(false).catch(() => {});
+    }); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- once per Big Box; the page owns `fullscreenBefore`
   useEffect(() => {
     const previous = document.activeElement as HTMLElement;
     const root = document.querySelector<HTMLElement>('[aria-label="Big Box library"]');
@@ -87,15 +122,21 @@ export default function ConsoleHome({ games, times, settings, actions, close, ca
   }, []);
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
+      // Typing in the search field: only Down, Enter and Escape mean something to Big Box; every other key is text.
+      if (e.target === searchField.current) {
+        if (e.key === "ArrowDown" || e.key === "Enter") { e.preventDefault(); searchField.current?.blur(); setZone(ordered.length ? "row" : "header"); root()?.focus({ preventScroll: true }); }
+        else if (e.key === "Escape") { e.preventDefault(); searchField.current?.blur(); if (query) setQuery(""); else root()?.focus({ preventScroll: true }); }
+        return;
+      }
       const onButton = !!(e.target as HTMLElement).closest("button");
       if (["Escape", "ArrowRight", "ArrowLeft", "ArrowUp", "ArrowDown"].includes(e.key)) e.preventDefault();
-      if (e.key === "Escape") { if (details) openDetails(false); else if (zone === "actions") toRow(); else close(); }
-      if (e.key === "ArrowRight") { if (zone === "row" && !details) move(1); else moveAction(1); }
-      if (e.key === "ArrowLeft") { if (zone === "row" && !details) move(-1); else moveAction(-1); }
-      if (e.key === "ArrowDown" && !details) toActions();
-      if (e.key === "ArrowUp") toRow();
+      if (e.key === "Escape") { if (details) openDetails(false); else if (zone === "actions" || (zone === "header" && ordered.length)) toRow(); else close(); }
+      if (e.key === "ArrowRight") { if (zone === "header") moveHeader(1); else if (zone === "row" && !details) move(1); else moveAction(1); }
+      if (e.key === "ArrowLeft") { if (zone === "header") moveHeader(-1); else if (zone === "row" && !details) move(-1); else moveAction(-1); }
+      if (e.key === "ArrowDown" && !details) { if (zone === "header") toRow(); else toActions(); }
+      if (e.key === "ArrowUp") { if (zone === "actions") toRow(); else if (zone === "row") toHeader(); }
       if ((e.key === "i" || e.key === "I") && !e.ctrlKey && !e.altKey) openDetails(!details);
-      if (e.key === "Enter" && current && !onButton) { e.preventDefault(); if (!e.repeat) play(); }
+      if (e.key === "Enter" && current && !onButton && zone !== "header") { e.preventDefault(); if (!e.repeat) play(); }
       if (e.key === "Tab") {
         const root = document.querySelector<HTMLElement>('[aria-label="Big Box library"]');
         const all = root?.querySelectorAll<HTMLButtonElement>("button:not([disabled])");
@@ -115,8 +156,10 @@ export default function ConsoleHome({ games, times, settings, actions, close, ca
   const playing = !!current && current.id === playingId;
   const hints: [string, string][] = details ? [["◀ ▶", "Choose"], ["✕", "OK"], ["△", "Favorite"], ["○", "Back"]]
     : zone === "actions" ? [["◀ ▶", "Choose"], ["✕", "OK"], ["▲", "Games"], ["○", "Back"]]
-    : [["◀ ▶", "Browse"], ["▼", "Options"], ["✕", "Play"], ["□", "Details"], ["△", "Favorite"], ["○", "Exit"], ["L1 R1", "Category"]];
+    : zone === "header" ? [["◀ ▶", "Choose"], ["✕", "OK"], ["▼", "Games"], ["○", "Back"]]
+    : [["◀ ▶", "Browse"], ["▲", "Search & settings"], ["▼", "Options"], ["✕", "Play"], ["□", "Details"], ["△", "Favorite"], ["○", "Exit"], ["L1 R1", "Category"]];
   const focusClass = (action: ConsoleAction) => zone === "actions" && buttons[actionIndex] === action ? "is-focus" : "";
+  const headClass = (action: HeaderAction) => `console-head-btn ${zone === "header" && HEADER_ACTIONS[headerIndex] === action ? "is-focus" : ""}`;
 
   return <div role="dialog" aria-modal="true" aria-label="Big Box library" className="bigbox-bg console-home fixed inset-0 z-40 flex flex-col overflow-hidden text-white">
     {current && <div key={current.id} className="console-hero" aria-hidden><Artwork game={current} banner performance={settings.performance} /></div>}
@@ -125,7 +168,13 @@ export default function ConsoleHome({ games, times, settings, actions, close, ca
     <header className="relative z-10 flex items-center justify-between gap-4 px-8 pt-6">
       <div className="flex items-center gap-3"><img src="/aether-mark.svg" className="h-9 w-9" alt="" /><span className="display-font font-bold">Aether Hub</span></div>
       <div role="group" aria-label="Category" className="flex flex-wrap items-center justify-center gap-1.5">{pad.connected && <kbd className="pad-key">L1</kbd>}{category.options.map(option => <button key={option} aria-pressed={category.value === option} onClick={() => category.set(option)} className={`h-8 rounded-full px-4 text-[11px] font-semibold ${category.value === option ? "bg-white text-[#131a2c]" : "bg-white/10 text-white/75 hover:bg-white/20"}`}>{option === "All" ? "All games" : option === "Custom" ? "Local" : option}</button>)}{pad.connected && <kbd className="pad-key">R1</kbd>}</div>
-      <div className="flex items-center gap-4"><span className="console-clock tabular-nums" aria-label={`Time ${clock}`}>{clock}</span><button className="flex items-center gap-2 rounded-xl px-3 py-2 text-[12px] text-white/80 hover:bg-white/10" onClick={close}><Minimize2 size={15} />Exit</button></div>
+      <div className="flex items-center gap-2">
+        <label className={`${headClass("search")} console-search`}><Search size={15} className="shrink-0" /><input ref={searchField} data-console-header="search" type="search" value={query} onChange={e => setQuery(e.target.value)} onFocus={() => { setZone("header"); setHeaderIndex(0); }} placeholder="Search" aria-label="Search games" className="w-28 bg-transparent text-[12px] text-white outline-none placeholder:text-white/55 xl:w-40" /></label>
+        <button data-console-header="scan" className={headClass("scan")} aria-label="Scan PC for games" title="Scan PC for games" onClick={onScan}><Radar size={16} /></button>
+        <button data-console-header="settings" className={headClass("settings")} aria-label="Settings" title="Settings" onClick={onSettings}><Settings2 size={16} /></button>
+        <span className="console-clock mx-2 tabular-nums" aria-label={`Time ${clock}`}>{clock}</span>
+        <button data-console-header="exit" className={`${headClass("exit")} gap-2 px-3`} onClick={close}><Minimize2 size={15} />Exit</button>
+      </div>
     </header>
 
     {current ? <>
@@ -163,7 +212,7 @@ export default function ConsoleHome({ games, times, settings, actions, close, ca
           </div>
         </div>
       </section>}
-    </> : <div className="relative z-10 flex flex-1 items-center justify-center text-white/70">No games match your filters.</div>}
+    </> : <div className="relative z-10 flex flex-1 flex-col items-center justify-center gap-2 text-white/70"><p>{query ? `No games match “${query}”.` : "No games match your filters."}</p>{query && <button className="rounded-full bg-white/10 px-4 py-1.5 text-[12px] hover:bg-white/20" onClick={() => setQuery("")}>Clear search</button>}</div>}
 
     <footer className="relative z-10 flex items-center justify-center gap-8 px-8 pb-5 text-[11px] text-white/60">{pad.connected ? <PadHints items={hints} /> : <><span>← → Browse</span><span>Enter Play</span><span>I Details</span><span>Esc {details ? "Back" : "Exit"}</span></>}<span className="tabular-nums">{ordered.length ? index + 1 : 0} / {ordered.length}</span></footer>
   </div>;

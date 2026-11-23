@@ -34,6 +34,7 @@ pub const COOLDOWN: Duration = Duration::from_secs(10);
 pub struct Arrivals { began: Duration, last: Option<Duration>, warmup: Duration, cooldown: Duration }
 impl Arrivals {
     /// `now` is any monotonic clock reading, for example the time since the program started.
+    #[cfg_attr(not(windows), allow(dead_code))] // used by the Windows controller watcher
     pub fn new(now: Duration) -> Self { Self::with(now, WARMUP, COOLDOWN) }
     pub fn with(now: Duration, warmup: Duration, cooldown: Duration) -> Self { Arrivals { began: now, last: None, warmup, cooldown } }
     /// A controller was reported as added at `now`: should the launcher come forward?

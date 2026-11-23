@@ -96,6 +96,10 @@ export default function Customize({ open, onOpenChange, settings, update }: { op
           <p className="mt-2 text-xs leading-relaxed text-muted-foreground">A soft click when the controller moves the selection, a chime when Aether Hub starts in Big Box, and a short sound when you launch a game with the controller.</p>
         </div>
         <div className="rounded-xl bg-secondary p-4">
+          <div className="flex items-center justify-between text-sm font-semibold"><span>Stay full screen after Big Box</span><Switch checked={settings.stayFullscreen} onCheckedChange={stayFullscreen => update({ stayFullscreen })} aria-label="Stay full screen after Big Box" /></div>
+          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">Leaving Big Box keeps Aether Hub full screen. Even with this off, it stays full screen if it already was before Big Box opened. Press F11 at any time to switch full screen on or off.</p>
+        </div>
+        <div className="rounded-xl bg-secondary p-4">
           <div className="flex items-center justify-between text-sm font-semibold"><span>Controller rumble</span><Switch checked={settings.rumble} onCheckedChange={rumble => update({ rumble })} aria-label="Controller rumble" /></div>
           <p className="mt-2 text-xs leading-relaxed text-muted-foreground">A short rumble when you launch a game with the controller. Xbox controllers rumble; a PS5 controller may not, depending on how Windows connects it.</p>
         </div>

@@ -1,4 +1,6 @@
-use crate::{models::Game, storage};
+use crate::models::Game;
+#[cfg(windows)]
+use crate::storage;
 #[cfg(windows)]
 pub fn export() -> Result<Option<usize>, String> {
     use std::{fs, os::windows::ffi::OsStrExt};
