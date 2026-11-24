@@ -4,7 +4,7 @@ import { DETAIL_ACTIONS, HEADER_ACTIONS, HOME_ACTIONS, TILE, fullscreenAfterBigB
 
 test("Down reaches Play, Details and Favorite; the details page has Play, Favorite and Back", () => {
   assert.deepEqual(HOME_ACTIONS, ["play", "details", "favorite"]);
-  assert.deepEqual(DETAIL_ACTIONS, ["play", "favorite", "back"]);
+  assert.deepEqual(DETAIL_ACTIONS, ["play", "favorite", "controls", "back"]);
   assert.equal(HOME_ACTIONS[0], "play", "Play is where Down lands first");
 });
 test("the row scrolls so the selected tile is centred, and never before the start", () => {

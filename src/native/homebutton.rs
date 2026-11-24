@@ -64,8 +64,13 @@ mod imp {
         },
     };
 
+    /// The Raw Input listener is running. Windows allows one per program, so controller layouts share it (`listen_reports`).
     static RUNNING: AtomicBool = AtomicBool::new(false);
+    static XINPUT_POLL: AtomicBool = AtomicBool::new(false);
     static ENABLED: AtomicBool = AtomicBool::new(false);
+    /// Controller layouts' reader for every PlayStation report, while they are switched on.
+    static SINK: OnceLock<fn(Sony, &[u8])> = OnceLock::new();
+    static SINK_ON: AtomicBool = AtomicBool::new(false);
     static ON_PRESS: OnceLock<Box<dyn Fn() + Send + Sync>> = OnceLock::new();
     /// One press detector for every source, so a controller seen two ways still counts once.
     static EDGE: Mutex<Option<Edge>> = Mutex::new(None);
@@ -80,9 +85,24 @@ mod imp {
 
     /// Starts listening (once; later calls only switch it back on). `on_press` runs on a worker thread.
     pub fn start(on_press: impl Fn() + Send + Sync + 'static) -> Result<(), String> {
-        ENABLED.store(true, Ordering::SeqCst);
-        if RUNNING.swap(true, Ordering::SeqCst) { return Ok(()); }
         let _ = ON_PRESS.set(Box::new(on_press));
+        // Xbox: a separate, gentle poll. Its failure (no XInput on this PC) does not stop the PlayStation side.
+        if !XINPUT_POLL.swap(true, Ordering::SeqCst) { let _ = std::thread::Builder::new().name("home-button-xinput".into()).spawn(poll_xinput); }
+        let result = raw();
+        ENABLED.store(result.is_ok(), Ordering::SeqCst);
+        result
+    }
+    /// Hands every PlayStation controller report to `sink` (on the listener's thread) until `stop_reports`.
+    pub fn listen_reports(sink: fn(Sony, &[u8])) -> Result<(), String> {
+        let _ = SINK.set(sink);
+        SINK_ON.store(true, Ordering::SeqCst);
+        raw()
+    }
+    pub fn stop_reports() { SINK_ON.store(false, Ordering::SeqCst); }
+    /// Starts the Raw Input listener once; later calls only report whether it is running.
+    fn raw() -> Result<(), String> {
+        static FAILED: Mutex<Option<String>> = Mutex::new(None);
+        if RUNNING.swap(true, Ordering::SeqCst) { return FAILED.lock().map(|f| f.clone()).unwrap_or(None).map_or(Ok(()), Err); }
         let (tx, rx) = mpsc::channel::<Result<(), String>>();
         let raw = std::thread::Builder::new().name("home-button-raw".into()).spawn(move || {
             if let Err(e) = unsafe { listen_raw() } { let _ = tx.send(Err(e)); return; }
@@ -93,9 +113,8 @@ mod imp {
             Err(e) => Err(format!("The PS button listener could not start: {e}")),
             Ok(_) => rx.recv_timeout(Duration::from_secs(5)).map_err(|_| "The PS button listener did not start in time.".to_string()).and_then(|r| r),
         };
-        // Xbox: a separate, gentle poll. Its failure (no XInput on this PC) does not stop the PlayStation side.
-        let _ = std::thread::Builder::new().name("home-button-xinput".into()).spawn(poll_xinput);
-        if result.is_err() { RUNNING.store(false, Ordering::SeqCst); ENABLED.store(false, Ordering::SeqCst); }
+        // A failed start is remembered rather than retried: a second listener window would only fail the same way.
+        if let Err(e) = &result { if let Ok(mut f) = FAILED.lock() { *f = Some(e.clone()); } }
         result
     }
     pub fn stop() { ENABLED.store(false, Ordering::SeqCst); }
@@ -116,7 +135,7 @@ mod imp {
         while GetMessageW(&mut msg, HWND::default(), 0, 0).as_bool() { let _ = TranslateMessage(&msg); DispatchMessageW(&msg); }
     }
     unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
-        if message == WM_INPUT && ENABLED.load(Ordering::SeqCst) { read_input(HRAWINPUT(lparam.0 as _)); }
+        if message == WM_INPUT && (ENABLED.load(Ordering::SeqCst) || SINK_ON.load(Ordering::SeqCst)) { read_input(HRAWINPUT(lparam.0 as _)); }
         DefWindowProcW(hwnd, message, wparam, lparam)
     }
     unsafe fn model_of(device: HANDLE) -> Option<Sony> {
@@ -146,7 +165,11 @@ mod imp {
         let bytes = std::slice::from_raw_parts(storage.as_ptr() as *const u8, got as usize);
         let Some(data) = bytes.get(start..start.saturating_add(each.saturating_mul(count))) else { return; };
         if each == 0 { return; }
-        for one in data.chunks(each) { if let Some(down) = ps_pressed(model, one) { report(down); } }
+        let sink = SINK.get().filter(|_| SINK_ON.load(Ordering::SeqCst));
+        for one in data.chunks(each) {
+            if let Some(down) = ps_pressed(model, one) { report(down); }
+            if let Some(sink) = sink { sink(model, one); }
+        }
     }
 
     #[repr(C)]
@@ -178,7 +201,7 @@ mod imp {
     }
 }
 #[cfg(windows)]
-pub use imp::{active, start, stop};
+pub use imp::{active, listen_reports, start, stop, stop_reports};
 
 #[cfg(not(windows))]
 pub fn start(_: impl Fn() + Send + Sync + 'static) -> Result<(), String> { Err("The PS / Xbox button needs Windows".into()) }

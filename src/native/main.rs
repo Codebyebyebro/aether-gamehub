@@ -10,6 +10,7 @@ mod art_finder;
 mod palette;
 mod power;
 mod homebutton;
+mod mapper;
 #[cfg(windows)]
 mod foreground;
 mod launch;
@@ -316,6 +317,7 @@ fn build_diagnostics() -> String {
             ("Start with Windows".into(), diag::feature(settings.start_with_windows, status.startup_error.is_empty(), &status.startup_error)),
             ("Controller wake-up".into(), diag::feature(settings.pad_wake, status.pad_watching, &status.pad_error)),
             ("PS / Xbox button".into(), diag::feature(settings.home_button, status.home_active, &status.home_error)),
+            ("Controller layouts".into(), diag::feature(settings.controller_layouts, status.layouts_active, &status.layouts_error)),
         ],
         library, memory: machine::footprint(), log: diag::recent(),
     };
@@ -358,7 +360,8 @@ fn main() {
         .expect("Aether Hub could not initialize");
     app.run(|handle, event| {
         // Quitting while a game is still running must not lose that session or leave a stale status on Discord.
-        if let tauri::RunEvent::Exit = event { session::flush_all(handle); discord::shutdown(); }
+        // Controller layouts release every key they hold, or Windows would think it is still pressed.
+        if let tauri::RunEvent::Exit = event { mapper::shutdown(); session::flush_all(handle); discord::shutdown(); }
     });
 }
 

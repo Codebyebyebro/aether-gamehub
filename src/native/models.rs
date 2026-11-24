@@ -14,12 +14,15 @@ pub struct Game {
     pub banner: String,
     pub steam_id: String,
     pub favorite: bool,
+    /// The controller layout used while this game runs (`mapper.rs`). Missing in libraries saved before layouts existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub controls: Option<crate::mapper::Controls>,
 }
 impl Game {
     pub fn new(title: String, platform: &str, target: String) -> Self {
         Self { id: uuid::Uuid::new_v4().to_string(), title, platform: platform.into(), target,
             args: String::new(), working_dir: String::new(), cover: String::new(),
-            banner: String::new(), steam_id: String::new(), favorite: false }
+            banner: String::new(), steam_id: String::new(), favorite: false, controls: None }
     }
     pub fn steam_art(&mut self, id: &str) {
         self.steam_id = id.to_owned();
@@ -68,6 +71,9 @@ pub struct Settings {
     pub home_button: bool,
     /// Leaving Big Box keeps the window full screen. Off: Big Box leaves full screen only if it was the one to turn it on.
     pub stay_fullscreen: bool,
+    /// Controller layouts: turn the controller into keyboard and mouse for games that ignore controllers. It sends
+    /// input to other programs, so it is off until the player switches it on.
+    pub controller_layouts: bool,
 }
 impl Default for Settings {
     fn default() -> Self { Self { theme: "cream".into(), accent: "#5b4bd6".into(), view: "poster".into(),
@@ -76,7 +82,7 @@ impl Default for Settings {
         backup_enabled: true, backup_dir: String::new(), backup_keep: 10,
         discord_enabled: false, discord_app_id: String::new(),
         steam_sync_enabled: false, steam_profile: String::new(), steam_api_key: String::new(), steam_sync_hours: 6,
-        keep_in_tray: false, shortcut: false, start_with_windows: false, pad_wake: false, check_updates: false, living_colors: true, console_mode: true, rumble: true, home_button: false, stay_fullscreen: false } }
+        keep_in_tray: false, shortcut: false, start_with_windows: false, pad_wake: false, check_updates: false, living_colors: true, console_mode: true, rumble: true, home_button: false, stay_fullscreen: false, controller_layouts: false } }
 }
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Library { pub games: Vec<Game>, pub settings: Settings }
@@ -165,6 +171,18 @@ mod tests {
     #[test] fn staying_full_screen_is_off_until_asked() {
         assert!(!serde_json::from_str::<Settings>(r#"{"theme":"navy"}"#).unwrap().stay_fullscreen);
         assert!(serde_json::from_str::<Settings>(r#"{"stayFullscreen":true}"#).unwrap().stay_fullscreen);
+    }
+    #[test] fn controller_layouts_are_off_and_games_without_a_layout_still_load() {
+        assert!(!serde_json::from_str::<Settings>(r#"{"theme":"navy"}"#).unwrap().controller_layouts);
+        assert!(serde_json::from_str::<Settings>(r#"{"controllerLayouts":true}"#).unwrap().controller_layouts);
+        let old = r#"{"id":"a","title":"Hades","platform":"Steam","target":"steam://rungameid/1145360","args":"","workingDir":"","cover":"","banner":"","steamId":"","favorite":false}"#;
+        let game: super::Game = serde_json::from_str(old).unwrap();
+        assert!(game.controls.is_none());
+        assert_eq!(serde_json::to_string(&game).unwrap(), old, "a game without a layout is saved exactly as before");
+        let with: super::Game = serde_json::from_str(&old.replace("false}", r#"false,"controls":{"preset":"shooter","leftStick":"wasd"}}"#)).unwrap();
+        assert_eq!(with.controls.unwrap().left_stick, "wasd");
+        let none: super::Game = serde_json::from_str(&old.replace("false}", r#"false,"controls":null}"#)).unwrap();
+        assert!(none.controls.is_none(), "the interface sends null for Off");
     }
     #[test] fn background_settings_use_their_camel_case_names() {
         let json = serde_json::to_string(&Settings::default()).unwrap();
