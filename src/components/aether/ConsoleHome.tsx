@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Heart, Info, Minimize2, Play, ArrowLeft, Search, Radar, Settings2 } from "lucide-react";
+import { Heart, Info, Minimize2, Play, ArrowLeft, Search, Radar, Settings2, Gamepad2 } from "lucide-react";
 import { KEYBOARD_EVENT } from "@/lib/spatialNav";
 import { toast } from "sonner";
-import { Game, PlaytimeEntry, Settings, desktop } from "@/lib/aether";
+import { Controls, Game, PlaytimeEntry, Settings, desktop } from "@/lib/aether";
+import { layoutName } from "@/lib/controls";
+import ControlsEditor from "@/components/aether/ControlsEditor";
 import { sortGames, playedLine, agoWords } from "@/lib/recent";
 import { formatPlaytime } from "@/lib/format";
 import type { AbsentMap } from "@/lib/absent";
@@ -26,7 +28,7 @@ function useClock() {
  * first) runs along the top, and Square opens a full-screen details page. The selection follows the game, not its
  * position, so it stays put when the order changes (for example when a game you just played moves to the front).
  */
-export default function ConsoleHome({ games, times, settings, actions, close, category, absent = {}, playingId, onCurrent, steppingAside, stayFullscreen, fullscreenBefore, onScan, onSettings }: {
+export default function ConsoleHome({ games, times, settings, actions, close, category, absent = {}, playingId, onCurrent, steppingAside, stayFullscreen, fullscreenBefore, onScan, onSettings, onControls }: {
   games: Game[]; times: Record<string, PlaytimeEntry>; settings: Settings; actions: Actions; close: () => void; category: Category;
   absent?: AbsentMap; playingId?: string | null; onCurrent?: (game: Game | undefined) => void;
   /** Asked as Big Box closes: is it only stepping aside for a dialog, and has the player asked to stay full screen? */
@@ -35,11 +37,13 @@ export default function ConsoleHome({ games, times, settings, actions, close, ca
   fullscreenBefore: { current: boolean | null };
   /** Big Box steps aside for these and comes back when they close. */
   onScan: () => void; onSettings: () => void;
+  /** Saves a game's controller layout (null is Off). */
+  onControls: (game: Game, controls: Controls | null) => void;
 }) {
   const [query, setQuery] = useState("");
   const ordered = useMemo(() => searchGames(sortGames(games, "recent", times), query), [games, times, query]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [details, setDetails] = useState(false);
+  const [details, setDetails] = useState(false); const [layoutOpen, setLayoutOpen] = useState(false);
   /** Where the controller is: the row of games, or the buttons under the title (Down goes there, Up comes back). */
   const [zone, setZone] = useState<"header" | "row" | "actions">("row");
   const [actionIndex, setActionIndex] = useState(0);
@@ -65,7 +69,7 @@ export default function ConsoleHome({ games, times, settings, actions, close, ca
   function openDetails(open: boolean) { setDetails(open); setZone(open ? "actions" : "row"); setActionIndex(0); if (open) playCue("open"); }
   const play = () => { if (current) actions.launch(current); };
   const favorite = () => { if (current) { actions.favorite(current); playCue("favorite"); } };
-  const run = (action: ConsoleAction) => { if (action === "play") play(); else if (action === "details") openDetails(true); else if (action === "favorite") favorite(); else openDetails(false); };
+  const run = (action: ConsoleAction) => { if (action === "play") play(); else if (action === "details") openDetails(true); else if (action === "favorite") favorite(); else if (action === "controls") setLayoutOpen(true); else openDetails(false); };
 
   useEffect(() => { setSelectedId(null); setDetails(false); setZone(z => z === "header" ? z : "row"); }, [category.value]);
   useEffect(() => { setSelectedId(null); }, [query]);
@@ -204,16 +208,19 @@ export default function ConsoleHome({ games, times, settings, actions, close, ca
             <div><dt className="text-white/60">Last played</dt><dd className="mt-0.5 font-semibold">{entry?.lastPlayed ? agoWords(entry.lastPlayed) : "Never"}</dd></div>
             <div><dt className="text-white/60">Platform</dt><dd className="mt-0.5 font-semibold">{current.platform === "Custom" ? "Local game" : current.platform}</dd></div>
             <div><dt className="text-white/60">Favorite</dt><dd className="mt-0.5 font-semibold">{current.favorite ? "Yes" : "No"}</dd></div>
+            <div><dt className="text-white/60">Controller layout</dt><dd className="mt-0.5 font-semibold">{layoutName(current.controls)}{current.controls && !settings.controllerLayouts ? " (switched off in Settings)" : ""}</dd></div>
           </dl>
           <div className="mt-6 flex items-center gap-3">
             <button data-console-action="play" className={`console-play ${focusClass("play")}`} onClick={play}><Play size={18} fill="currentColor" />Play</button>
             <button data-console-action="favorite" className={`console-round ${focusClass("favorite")}`} aria-label={current.favorite ? "Remove favorite" : "Favorite"} aria-pressed={current.favorite} onClick={favorite}><Heart size={20} fill={current.favorite ? "currentColor" : "none"} /></button>
+            <button data-console-action="controls" className={`console-round ${focusClass("controls")}`} aria-label="Controller layout" title="Controller layout" onClick={() => setLayoutOpen(true)}><Gamepad2 size={20} /></button>
             <button data-console-action="back" className={`console-round ${focusClass("back")}`} aria-label="Back to games" onClick={() => openDetails(false)}><ArrowLeft size={20} /></button>
           </div>
         </div>
       </section>}
     </> : <div className="relative z-10 flex flex-1 flex-col items-center justify-center gap-2 text-white/70"><p>{query ? `No games match “${query}”.` : "No games match your filters."}</p>{query && <button className="rounded-full bg-white/10 px-4 py-1.5 text-[12px] hover:bg-white/20" onClick={() => setQuery("")}>Clear search</button>}</div>}
 
+    {layoutOpen && current && <ControlsEditor title={current.title} controls={current.controls} enabled={settings.controllerLayouts} close={() => setLayoutOpen(false)} save={controls => { onControls(current, controls); setLayoutOpen(false); }} />}
     <footer className="relative z-10 flex items-center justify-center gap-8 px-8 pb-5 text-[11px] text-white/60">{pad.connected ? <PadHints items={hints} /> : <><span>← → Browse</span><span>Enter Play</span><span>I Details</span><span>Esc {details ? "Back" : "Exit"}</span></>}<span className="tabular-nums">{ordered.length ? index + 1 : 0} / {ordered.length}</span></footer>
   </div>;
 }

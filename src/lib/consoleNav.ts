@@ -1,9 +1,9 @@
 /** Big Box layout rules shared by the console home screen, kept pure so they are tested. */
 
-export type ConsoleAction = "play" | "details" | "favorite" | "back";
+export type ConsoleAction = "play" | "details" | "favorite" | "controls" | "back";
 /** The buttons under the title, left to right, on the home screen and on the details page. */
 export const HOME_ACTIONS: readonly ConsoleAction[] = ["play", "details", "favorite"];
-export const DETAIL_ACTIONS: readonly ConsoleAction[] = ["play", "favorite", "back"];
+export const DETAIL_ACTIONS: readonly ConsoleAction[] = ["play", "favorite", "controls", "back"];
 /** The top bar, reached with Up from the games: everything that used to need the mouse. */
 export type HeaderAction = "search" | "scan" | "settings" | "exit";
 export const HEADER_ACTIONS: readonly HeaderAction[] = ["search", "scan", "settings", "exit"];

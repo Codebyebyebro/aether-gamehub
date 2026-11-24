@@ -2,6 +2,10 @@
 
 Each release has a section here named after its version. The Windows build copies that section into the release notes, and a test fails if the current version has none.
 
+## Not released yet
+
+- **Controller layouts, for games that ignore controllers.** Pick a layout for a game (**Edit game → Controller layout**, or the controller button on a game's **Details** page in Big Box) and, while that game is in front, your controller types keys and moves the mouse for it. Three ready-made layouts: **Mouse & keyboard shooter** (left stick walks with W A S D, right stick looks around, R2 shoots, L2 aims), **Point and click** and **Platformer**. Or make your own: choose a button, then press the key you want, or pick it from the on-screen keys with the controller. Switch it on under **Settings → Background → Controller layouts**; it is off until you do. It never sends keys to Aether Hub, the desktop or other programs, the PS button still opens the quick menu, and every key is let go when the game ends or the quick menu opens. Games that only work with Xbox controllers need Steam Input or DS4Windows instead, and some games with anti-cheat block keys sent this way.
+
 ## 0.3.0
 
 - **Do everything from Big Box.** Press **Up** from the games for a top bar with **Search** (opens the on-screen keyboard), **Scan for games**, **Settings** and **Exit**. Scan and Settings open over the library with the controller working, and Big Box comes back when you close them.

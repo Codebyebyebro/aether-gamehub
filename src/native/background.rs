@@ -2,7 +2,7 @@
 //! coming forward in Big Box when a controller connects. Every one of these is off until the player switches it on.
 //!
 //! One rule runs through all of it: the window is only ever hidden while the tray icon exists to bring it back.
-use crate::{autostart, behavior::{self, Wanted}, diag, homebutton, hotkey, models::Settings, padwatch, session, storage};
+use crate::{autostart, behavior::{self, Wanted}, diag, homebutton, hotkey, mapper, models::Settings, padwatch, session, storage};
 use serde::Serialize;
 use std::sync::{atomic::{AtomicBool, Ordering}, Mutex, MutexGuard};
 use tauri::{
@@ -22,6 +22,7 @@ static APPLIED: Mutex<Option<Wanted>> = Mutex::new(None);
 static ERRORS: Mutex<Errors> = Mutex::new(Errors { tray: String::new(), shortcut: String::new(), startup: String::new(), pad: String::new(), home: String::new() });
 /// The PS / Xbox button listener's switch as last applied (None before the first apply).
 static HOME_APPLIED: Mutex<Option<bool>> = Mutex::new(None);
+static LAYOUTS_APPLIED: Mutex<Option<bool>> = Mutex::new(None);
 
 struct Errors { tray: String, shortcut: String, startup: String, pad: String, home: String }
 fn errors() -> MutexGuard<'static, Errors> { ERRORS.lock().unwrap_or_else(|e| e.into_inner()) }
@@ -34,15 +35,19 @@ pub struct Status {
     pub startup_error: String,
     pub pad_watching: bool, pub pad_error: String,
     pub home_active: bool, pub home_error: String,
+    /// Controller layouts: listening, what is happening in plain words, and the error if any.
+    pub layouts_active: bool, pub layouts_state: String, pub layouts_error: String,
 }
 pub fn status() -> Status {
     let e = errors();
+    let (layouts_active, layouts_state, layouts_error) = mapper::status();
     Status {
         tray_active: TRAY_UP.load(Ordering::SeqCst), tray_error: e.tray.clone(),
         shortcut_active: hotkey::active(), shortcut_label: hotkey::LABEL.into(), shortcut_error: e.shortcut.clone(),
         startup_error: e.startup.clone(),
         pad_watching: padwatch::running(), pad_error: e.pad.clone(),
         home_active: homebutton::active(), home_error: e.home.clone(),
+        layouts_active, layouts_state, layouts_error,
     }
 }
 
@@ -59,7 +64,8 @@ fn home_pressed(app: &AppHandle) {
     let in_front = app.get_webview_window("main").and_then(|w| w.is_focused().ok()).unwrap_or(false);
     if in_front { return; }
     match session::current() {
-        Some(playing) => { show_main(app); let _ = app.emit("aether:quick-menu", playing); }
+        // Controller layouts let go of every key first, so nothing stays pressed in the game behind the menu.
+        Some(playing) => { mapper::pause(); show_main(app); let _ = app.emit("aether:quick-menu", playing); }
         None => request_big_box(app),
     }
 }
@@ -147,6 +153,8 @@ pub fn apply(app: &AppHandle, settings: &Settings) {
     if plan.pad == Some(true) { watch_pads(app); }
     let home_changed = { let mut was = HOME_APPLIED.lock().unwrap_or_else(|e| e.into_inner()); let changed = *was != Some(settings.home_button); *was = Some(settings.home_button); changed };
     if home_changed && (settings.home_button || homebutton::active()) { set_home(app, settings.home_button); }
+    let layouts_changed = { let mut was = LAYOUTS_APPLIED.lock().unwrap_or_else(|e| e.into_inner()); let changed = *was != Some(settings.controller_layouts); *was = Some(settings.controller_layouts); changed };
+    if layouts_changed { if let Err(e) = mapper::set_enabled(settings.controller_layouts) { diag::event("layouts", &e); } }
 }
 
 /// At start-up: apply the saved settings, then honour a quiet start. A quiet start (`--tray`, used by "start with

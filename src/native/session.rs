@@ -111,19 +111,30 @@ impl Probe {
     fn matching(&mut self) -> Vec<Pid> {
         let Some(system) = self.system.as_mut() else { return vec![]; };
         system.refresh_processes_specifics(ProcessesToUpdate::All, true, ProcessRefreshKind::nothing().with_exe(UpdateKind::OnlyIfNotSet));
-        let own = std::process::id();
-        system.processes().iter().filter(|(pid, p)| pid.as_u32() != own && match &self.watch {
-            Watch::Pid(main, dir) => pid.as_u32() == *main || dir.as_deref().is_some_and(|d| p.exe().is_some_and(|exe| util::path_starts_with(exe, d))),
-            Watch::Dir(dir) => p.exe().is_some_and(|exe| util::path_starts_with(exe, dir)),
-            Watch::Names(names) => names.iter().any(|n| p.name().to_string_lossy().eq_ignore_ascii_case(n)),
-            Watch::Nothing => false,
-        }).map(|(pid, _)| *pid).collect()
+        system.processes().iter().filter(|(pid, p)| follows(&self.watch, **pid, p)).map(|(pid, _)| *pid).collect()
+    }
+    /// Whether process `pid` is one this probe follows. Only that one process is looked up, so it is cheap; controller
+    /// layouts ask it about the window in front.
+    pub fn owns(&mut self, pid: u32) -> bool {
+        let Some(system) = self.system.as_mut() else { return false; };
+        let pid = Pid::from_u32(pid);
+        system.refresh_processes_specifics(ProcessesToUpdate::Some(&[pid]), true, ProcessRefreshKind::nothing().with_exe(UpdateKind::OnlyIfNotSet));
+        system.process(pid).is_some_and(|p| follows(&self.watch, pid, p))
     }
     /// Ends every process this probe follows. Returns how many were asked to stop.
     pub fn kill(&mut self) -> usize {
         let pids = self.matching();
         let Some(system) = self.system.as_ref() else { return 0; };
         pids.iter().filter(|pid| system.process(**pid).is_some_and(|p| p.kill())).count()
+    }
+}
+
+fn follows(watch: &Watch, pid: Pid, p: &sysinfo::Process) -> bool {
+    pid.as_u32() != std::process::id() && match watch {
+        Watch::Pid(main, dir) => pid.as_u32() == *main || dir.as_deref().is_some_and(|d| p.exe().is_some_and(|exe| util::path_starts_with(exe, d))),
+        Watch::Dir(dir) => p.exe().is_some_and(|exe| util::path_starts_with(exe, dir)),
+        Watch::Names(names) => names.iter().any(|n| p.name().to_string_lossy().eq_ignore_ascii_case(n)),
+        Watch::Nothing => false,
     }
 }
 
@@ -170,8 +181,10 @@ fn track(app: AppHandle, game: Game, handoff: Handoff) {
 fn begin(app: &AppHandle, game: &Game, started_at: u64, watch: Watch) {
     if let Ok(mut live) = LIVE.lock() {
         live.retain(|l| l.id != game.id);
-        live.push(Live { id: game.id.clone(), title: game.title.clone(), started_at, last_seen: started_at, watch });
+        live.push(Live { id: game.id.clone(), title: game.title.clone(), started_at, last_seen: started_at, watch: watch.clone() });
     }
+    let mut probe = Probe::new(watch);
+    crate::mapper::begin(&game.id, &game.title, game.controls.clone(), Box::new(move |pid| probe.owns(pid)));
     discord::show(&game.title, started_at);
     let _ = app.emit("aether:session-started", SessionEvent { id: game.id.clone(), title: game.title.clone(), started_at });
 }
@@ -194,6 +207,7 @@ fn record(app: &AppHandle, ended: &Live, until: u64) {
     let _ = app.emit("aether:session-ended", SessionEvent { id: ended.id.clone(), title: ended.title.clone(), started_at: ended.started_at });
 }
 fn finish(app: &AppHandle, id: &str, last_seen: u64) {
+    crate::mapper::end(id);
     let Some((ended, next)) = remove(id) else { return; };
     record(app, &ended, last_seen);
     match next { Some((title, started_at)) => discord::show(&title, started_at), None => discord::clear() }
@@ -274,6 +288,16 @@ mod tests {
         assert!(close(&id).unwrap_err().contains("Ghost"));
         assert!(!take_ending(&id));
         LIVE.lock().unwrap().retain(|l| l.id != id);
+    }
+    #[test] fn a_window_belongs_to_the_game_only_if_its_process_is_followed() {
+        let (dir, child) = game("owns");
+        let (other_dir, other) = game("not-owned");
+        let mut probe = Probe::new(Watch::Dir(dir.clone()));
+        assert!(probe.owns(child.id()));
+        assert!(!probe.owns(other.id()), "another program");
+        assert!(!probe.owns(std::process::id()), "never Aether Hub itself");
+        assert!(!probe.owns(u32::MAX - 1), "a process that does not exist");
+        stop(child, dir); stop(other, other_dir);
     }
     #[test] fn process_names_are_matched_without_regard_to_case() {
         let (dir, child) = game("name");

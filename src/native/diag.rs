@@ -134,7 +134,7 @@ pub fn settings_lines(s: &Settings) -> Vec<String> {
         format!("View: {}, tile size {}", s.view, s.size),
         format!("After launching a game: {}", s.after_launch),
         format!("Performance mode: {}, sounds: {}, living colors: {}", on_off(s.performance), on_off(s.sounds), on_off(s.living_colors)),
-        format!("Console mode: {}, rumble: {}, PS / Xbox button: {}", on_off(s.console_mode), on_off(s.rumble), on_off(s.home_button)),
+        format!("Console mode: {}, rumble: {}, PS / Xbox button: {}, controller layouts: {}", on_off(s.console_mode), on_off(s.rumble), on_off(s.home_button), on_off(s.controller_layouts)),
         format!("Backups: {} (keeps {}), custom backup folder: {}", on_off(s.backup_enabled), s.backup_keep, if s.backup_dir.is_empty() { "no" } else { "yes" }),
         format!("Discord status: {}, Steam sync: {}, update check at start: {}", on_off(s.discord_enabled), on_off(s.steam_sync_enabled), on_off(s.check_updates)),
         format!("Extra scan folders: {}", s.folders.len()),
